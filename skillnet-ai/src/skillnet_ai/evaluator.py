@@ -1,5 +1,6 @@
 import ast
 import json
+import re
 import logging
 import os
 import shlex
@@ -10,6 +11,7 @@ from dataclasses import dataclass
 from typing import Dict, Any, List, Optional, Tuple, Callable, Iterator
 
 from openai import OpenAI
+from json_repair import repair_json
 from tqdm import tqdm
 
 from skillnet_ai.downloader import SkillDownloader
@@ -710,6 +712,44 @@ class LLMClient:
         self.model = config.model
         self.temperature = config.temperature
     
+    @staticmethod
+    def _parse_json_response(raw_response: Optional[str]) -> Dict[str, Any]:
+        """Parse a JSON response from the LLM with multi-stage fallback.
+
+        Handles empty responses, markdown-wrapped JSON, trailing commas,
+        single-quoted keys, and other common malformations from
+        OpenAI-compatible providers that do not strictly honour
+        ``response_format``.
+        """
+        # Stage 1: empty / None check
+        cleaned = (raw_response or "").strip()
+        if not cleaned:
+            raise ValueError("LLM returned an empty response")
+
+        # Stage 2: strip markdown code fences (```json ... ``` or ``` ... ```)
+        cleaned = re.sub(r"^```(?:json)?\s*\n?", "", cleaned)
+        cleaned = re.sub(r"\n?```\s*$", "", cleaned)
+        cleaned = cleaned.strip()
+
+        # Stage 3: try standard json.loads first (fast path)
+        try:
+            return json.loads(cleaned)
+        except json.JSONDecodeError:
+            pass
+
+        # Stage 4: attempt repair via json-repair
+        logger.warning(
+            "JSON parsing failed, attempting repair. raw_response=%r",
+            cleaned[:200],
+        )
+        try:
+            repaired = repair_json(cleaned, return_objects=False)
+            return json.loads(repaired)
+        except Exception as exc:
+            raise ValueError(
+                f"Unable to parse LLM response as JSON even after repair: {exc}"
+            ) from exc
+
     def evaluate(self, prompt: str) -> Dict[str, Any]:
         """Call the LLM with the given prompt and parse JSON response."""
         messages = [
@@ -718,12 +758,13 @@ class LLMClient:
                 "content": (
                     "You are an expert evaluator of AI Agent Skills. "
                     "Follow the JSON schema and constraints exactly. "
-                    "Use ONLY the provided metadata, SKILL.md, reference files, and scripts snippets."
+                    "Use ONLY the provided metadata, SKILL.md, reference files, and scripts snippets. "
+                    "Return ONLY a valid JSON object. Do not include markdown, explanations, or extra text."
                 )
             },
             {"role": "user", "content": prompt}
         ]
-        
+
         try:
             response = self.client.chat.completions.create(
                 model=self.model,
@@ -732,7 +773,7 @@ class LLMClient:
                 temperature=self.temperature
             )
             raw_response = response.choices[0].message.content
-            return json.loads(raw_response)
+            return self._parse_json_response(raw_response)
         except Exception as e:
             logger.error(f"LLM call failed: {e}")
             raise
