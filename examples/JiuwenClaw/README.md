@@ -2,6 +2,10 @@
 
 本教程将指导你在 JiuwenClaw 中通过 SkillNet 技能库搜索、安装并使用海量技能，让你的 AI Agent 能力无限扩展。
 
+
+https://github.com/user-attachments/assets/28a460c8-45a3-44b6-b34f-bed4a49f2e32
+
+
 ## 简介
 
 **SkillNet** 是一个大规模智能体技能知识库，收录了超过 30 万项高质量技能，将分散的实践经验沉淀为可计算、可检索、可组合的结构化知识网络。
