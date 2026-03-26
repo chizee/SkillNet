@@ -10,6 +10,7 @@ from skillnet_ai.downloader import SkillDownloader, GitHubAPIError
 from skillnet_ai.evaluator import SkillEvaluator, EvaluatorConfig
 from skillnet_ai.searcher import SkillNetSearcher
 from skillnet_ai.analyzer import SkillRelationshipAnalyzer
+from skillnet_ai.providers import resolve_provider_config, SUPPORTED_PROVIDERS
 
 app = typer.Typer(help="SkillNet AI CLI Tool")
 console = Console()
@@ -183,10 +184,11 @@ def create(
     # Model options
     model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="LLM model to use (e.g., gpt-4o, gpt-3.5-turbo)."),
     max_files: int = typer.Option(50, "--max-files", help="Max code files to analyze (--github only)."),
+    provider: str = typer.Option(None, "--provider", help=f"LLM provider ({', '.join(SUPPORTED_PROVIDERS)}). Auto-detected when omitted."),
 ):
     """
     Create executable Skill packages using AI.
-    
+
     Supports four modes:
     - From trajectory: skillnet create trajectory.txt
     - From GitHub: skillnet create --github https://github.com/owner/repo
@@ -194,9 +196,10 @@ def create(
     - From prompt: skillnet create --prompt "Create a skill for..."
     """
     # 1. Validate Environment
-    if not API_KEY:
-        console.print("[bold red]Error:[/bold red] API_KEY environment variable is not set.")
-        console.print("Please export API_KEY or set it in your environment.")
+    cfg = resolve_provider_config(provider=provider, api_key=API_KEY, base_url=BASE_URL, model=model)
+    if not cfg["api_key"]:
+        console.print("[bold red]Error:[/bold red] API key is not set.")
+        console.print("Set API_KEY (OpenAI) or MINIMAX_API_KEY (MiniMax), or pass --provider.")
         raise typer.Exit(code=1)
 
     # 2. Determine mode based on provided options
@@ -222,16 +225,16 @@ def create(
 
     # 3. Route to appropriate handler
     if github:
-        _create_from_github(github, output_dir, model, max_files)
+        _create_from_github(github, output_dir, model, max_files, provider)
     elif trajectory_file:
-        _create_from_trajectory(trajectory_file, output_dir, model)
+        _create_from_trajectory(trajectory_file, output_dir, model, provider)
     elif office:
-        _create_from_office(office, output_dir, model)
+        _create_from_office(office, output_dir, model, provider)
     elif prompt:
-        _create_from_prompt(prompt, output_dir, model)
+        _create_from_prompt(prompt, output_dir, model, provider)
 
 
-def _create_from_trajectory(trajectory_file: Path, output_dir: Path, model: str):
+def _create_from_trajectory(trajectory_file: Path, output_dir: Path, model: str, provider: str = None):
     """Internal function to create skill from trajectory file."""
     try:
         # Read Trajectory Content
@@ -245,9 +248,10 @@ def _create_from_trajectory(trajectory_file: Path, output_dir: Path, model: str)
 
         # Initialize Creator
         creator = SkillCreator(
-            api_key=API_KEY, 
-            base_url=BASE_URL, 
-            model=model
+            api_key=API_KEY,
+            base_url=BASE_URL,
+            model=model,
+            provider=provider,
         )
 
         # Run Generation with Spinner
@@ -260,7 +264,7 @@ def _create_from_trajectory(trajectory_file: Path, output_dir: Path, model: str)
         # Report Results
         if created_paths:
             console.print(f"\n[bold green]Success! Generated {len(created_paths)} skill(s):[/bold green]")
-            
+
             table = Table(show_header=True, header_style="bold magenta")
             table.add_column("Skill Name", style="cyan")
             table.add_column("Location", style="white")
@@ -268,7 +272,7 @@ def _create_from_trajectory(trajectory_file: Path, output_dir: Path, model: str)
             for path in created_paths:
                 skill_name = os.path.basename(path)
                 table.add_row(skill_name, str(path))
-            
+
             console.print(table)
             console.print(f"\n[dim]Files saved to: {os.path.abspath(output_dir)}[/dim]")
         else:
@@ -279,7 +283,7 @@ def _create_from_trajectory(trajectory_file: Path, output_dir: Path, model: str)
         raise typer.Exit(code=1)
 
 
-def _create_from_github(github_url: str, output_dir: Path, model: str, max_files: int):
+def _create_from_github(github_url: str, output_dir: Path, model: str, max_files: int, provider: str = None):
     """Internal function to create skill from GitHub repository."""
     try:
         console.print(f"[dim]Creating skill from GitHub: {github_url}[/dim]")
@@ -288,7 +292,8 @@ def _create_from_github(github_url: str, output_dir: Path, model: str, max_files
         creator = SkillCreator(
             api_key=API_KEY,
             base_url=BASE_URL,
-            model=model
+            model=model,
+            provider=provider,
         )
 
         # Run Generation with Spinner
@@ -303,7 +308,7 @@ def _create_from_github(github_url: str, output_dir: Path, model: str, max_files
         # Report Results
         if created_paths:
             console.print(f"\n[bold green]Success! Generated {len(created_paths)} skill(s) from GitHub:[/bold green]")
-            
+
             table = Table(show_header=True, header_style="bold magenta")
             table.add_column("Skill Name", style="cyan")
             table.add_column("Location", style="white")
@@ -311,7 +316,7 @@ def _create_from_github(github_url: str, output_dir: Path, model: str, max_files
             for path in created_paths:
                 skill_name = os.path.basename(path)
                 table.add_row(skill_name, str(path))
-            
+
             console.print(table)
             console.print(f"\n[dim]Files saved to: {os.path.abspath(output_dir)}[/dim]")
             console.print("\n[dim]Tip: Use 'skillnet evaluate <skill_path>' to evaluate the generated skill.[/dim]")
@@ -323,7 +328,7 @@ def _create_from_github(github_url: str, output_dir: Path, model: str, max_files
         raise typer.Exit(code=1)
 
 
-def _create_from_office(office_file: Path, output_dir: Path, model: str):
+def _create_from_office(office_file: Path, output_dir: Path, model: str, provider: str = None):
     """Internal function to create skill from office document."""
     try:
         console.print(f"[dim]Creating skill from office document: {office_file}[/dim]")
@@ -332,7 +337,8 @@ def _create_from_office(office_file: Path, output_dir: Path, model: str):
         creator = SkillCreator(
             api_key=API_KEY,
             base_url=BASE_URL,
-            model=model
+            model=model,
+            provider=provider,
         )
 
         # Run Generation with Spinner
@@ -345,7 +351,7 @@ def _create_from_office(office_file: Path, output_dir: Path, model: str):
         # Report Results
         if created_paths:
             console.print(f"\n[bold green]Success! Generated {len(created_paths)} skill(s) from document:[/bold green]")
-            
+
             table = Table(show_header=True, header_style="bold magenta")
             table.add_column("Skill Name", style="cyan")
             table.add_column("Location", style="white")
@@ -353,7 +359,7 @@ def _create_from_office(office_file: Path, output_dir: Path, model: str):
             for path in created_paths:
                 skill_name = os.path.basename(path)
                 table.add_row(skill_name, str(path))
-            
+
             console.print(table)
             console.print(f"\n[dim]Files saved to: {os.path.abspath(output_dir)}[/dim]")
             console.print("\n[dim]Tip: Use 'skillnet evaluate <skill_path>' to evaluate the generated skill.[/dim]")
@@ -370,7 +376,7 @@ def _create_from_office(office_file: Path, output_dir: Path, model: str):
         raise typer.Exit(code=1)
 
 
-def _create_from_prompt(user_prompt: str, output_dir: Path, model: str):
+def _create_from_prompt(user_prompt: str, output_dir: Path, model: str, provider: str = None):
     """Internal function to create skill from user's prompt description."""
     try:
         console.print(f"[dim]Creating skill from user prompt...[/dim]")
@@ -379,7 +385,8 @@ def _create_from_prompt(user_prompt: str, output_dir: Path, model: str):
         creator = SkillCreator(
             api_key=API_KEY,
             base_url=BASE_URL,
-            model=model
+            model=model,
+            provider=provider,
         )
 
         # Run Generation with Spinner
@@ -424,23 +431,27 @@ def evaluate(
     # Config options
     model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="LLM model to use."),
     max_workers: int = typer.Option(5, help="Concurrency for batch operations (not used for single eval)."),
+    provider: str = typer.Option(None, "--provider", help=f"LLM provider ({', '.join(SUPPORTED_PROVIDERS)}). Auto-detected when omitted."),
 ):
     """
     Evaluate the quality, safety, and completeness of a skill using AI.
-    
+
     Target can be a local folder path or a GitHub URL (e.g., https://github.com/user/repo/tree/main/skill).
     """
     # 1. Validate Environment
-    if not API_KEY:
-        console.print("[bold red]Error:[/bold red] API_KEY environment variable is not set.")
+    cfg = resolve_provider_config(provider=provider, api_key=API_KEY, base_url=BASE_URL, model=model)
+    if not cfg["api_key"]:
+        console.print("[bold red]Error:[/bold red] API key is not set.")
+        console.print("Set API_KEY (OpenAI) or MINIMAX_API_KEY (MiniMax), or pass --provider.")
         raise typer.Exit(code=1)
 
     # 2. Configure Evaluator
     config = EvaluatorConfig(
-        api_key=API_KEY,
-        base_url=BASE_URL,
-        model=model,
-        max_workers=max_workers
+        api_key=cfg["api_key"],
+        base_url=cfg["base_url"],
+        model=cfg["model"],
+        max_workers=max_workers,
+        provider=provider,
     )
     evaluator = SkillEvaluator(config)
 
@@ -517,24 +528,28 @@ def analyze(
     skills_dir: Path = typer.Argument(..., exists=True, file_okay=False, help="Directory containing multiple skill folders to analyze."),
     save: bool = typer.Option(True, "--save/--no-save", help="Save the result to relationships.json in the directory."),
     model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="LLM model to use."),
+    provider: str = typer.Option(None, "--provider", help=f"LLM provider ({', '.join(SUPPORTED_PROVIDERS)}). Auto-detected when omitted."),
 ):
     """
     Analyze and map relationships (similar_to, belong_to, compose_with, depend_on) between local skills.
-    
-    This command scans all subdirectories in the target folder, reads their descriptions, 
+
+    This command scans all subdirectories in the target folder, reads their descriptions,
     and uses AI to build a knowledge graph of how the skills relate to each other.
     """
     # 1. Validate Environment
-    if not API_KEY:
-        console.print("[bold red]Error:[/bold red] API_KEY environment variable is not set.")
+    cfg = resolve_provider_config(provider=provider, api_key=API_KEY, base_url=BASE_URL, model=model)
+    if not cfg["api_key"]:
+        console.print("[bold red]Error:[/bold red] API key is not set.")
+        console.print("Set API_KEY (OpenAI) or MINIMAX_API_KEY (MiniMax), or pass --provider.")
         raise typer.Exit(code=1)
 
     try:
         # 2. Initialize Analyzer
         analyzer = SkillRelationshipAnalyzer(
-            api_key=API_KEY,
-            base_url=BASE_URL,
-            model=model
+            api_key=cfg["api_key"],
+            base_url=cfg["base_url"],
+            model=cfg["model"],
+            provider=provider,
         )
 
         # 3. Visual Feedback & Execution

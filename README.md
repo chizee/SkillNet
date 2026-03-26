@@ -312,6 +312,7 @@ skillnet analyze ./my_agent_skills --model gpt-4o
 | Variable         | Required For                       | Default                     |
 | :--------------- | :--------------------------------- | :-------------------------- |
 | `API_KEY`        | `create` · `evaluate` · `analyze`  | —                           |
+| `MINIMAX_API_KEY`| MiniMax provider (auto-detected)   | —                           |
 | `BASE_URL`       | Custom LLM endpoint                | `https://api.openai.com/v1` |
 | `GITHUB_TOKEN`   | Private repos / higher rate limits | —                           |
 | `SKILLNET_MODEL` | Default LLM model for all commands | `gpt-4o`                    |
@@ -334,6 +335,51 @@ export BASE_URL="https://..."  # optional
 $env:API_KEY = "sk-..."
 $env:BASE_URL = "https://..."  # optional
 ```
+
+### Using MiniMax as LLM Provider
+
+SkillNet supports [MiniMax](https://www.minimax.io/) as a first-class LLM provider. MiniMax offers the M2.7 model with a 1M-token context window and OpenAI-compatible API.
+
+**Quick start — environment variable (auto-detected):**
+
+```bash
+export MINIMAX_API_KEY="your-minimax-api-key"
+skillnet create --prompt "A skill for web scraping"
+# Provider, base URL, and model are auto-configured
+```
+
+**Explicit provider flag:**
+
+```bash
+export MINIMAX_API_KEY="your-minimax-api-key"
+skillnet create --provider minimax --prompt "A skill for web scraping"
+skillnet evaluate --provider minimax ./my_skill
+skillnet analyze --provider minimax ./my_skills
+```
+
+**Python SDK:**
+
+```python
+from skillnet_ai import SkillNetClient
+
+# Auto-detected when MINIMAX_API_KEY is set
+client = SkillNetClient()
+
+# Or explicit provider
+client = SkillNetClient(
+    provider="minimax",
+    api_key="your-minimax-api-key",
+)
+
+# All operations use MiniMax M2.7 by default
+client.create(prompt="A skill for PDF parsing", output_dir="./skills")
+client.evaluate(target="./skills/pdf-parser")
+```
+
+| Provider | Default Model    | Base URL                      | API Key Env        |
+| :------- | :--------------- | :---------------------------- | :----------------- |
+| `openai` | `gpt-4o`         | `https://api.openai.com/v1`   | `API_KEY`          |
+| `minimax`| `MiniMax-M2.7`   | `https://api.minimax.io/v1`   | `MINIMAX_API_KEY`  |
 
 ---
 

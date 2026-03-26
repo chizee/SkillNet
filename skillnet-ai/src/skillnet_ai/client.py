@@ -7,6 +7,7 @@ from skillnet_ai.downloader import SkillDownloader, GitHubAPIError
 from skillnet_ai.evaluator import SkillEvaluator, EvaluatorConfig
 from skillnet_ai.searcher import SkillNetSearcher
 from skillnet_ai.analyzer import SkillRelationshipAnalyzer
+from skillnet_ai.providers import resolve_provider_config
 
 DEFAULT_MODEL = os.getenv("SKILLNET_MODEL", "gpt-4o")
 
@@ -17,27 +18,37 @@ class SkillNetError(Exception):
 class SkillNetClient:
     """
     A Python SDK client for interacting with SkillNet services.
-    
+
     This client aggregates Search, Download, Create, Evaluate, and Analyze functionalities.
     """
 
     def __init__(
-        self, 
-        api_key: Optional[str] = None, 
+        self,
+        api_key: Optional[str] = None,
         base_url: Optional[str] = None,
-        github_token: Optional[str] = None
+        github_token: Optional[str] = None,
+        provider: Optional[str] = None,
     ):
         """
         Initialize the SkillNet Client.
 
         Args:
-            api_key: OpenAI/SkillNet API Key. Defaults to env var API_KEY.
-            base_url: Base URL for the LLM API. Defaults to env var BASE_URL or OpenAI default.
+            api_key: LLM API Key. Defaults to env var API_KEY (or MINIMAX_API_KEY for MiniMax).
+            base_url: Base URL for the LLM API. Defaults to env var BASE_URL or provider default.
             github_token: GitHub token for downloading private skills or avoiding rate limits.
                           Defaults to env var GITHUB_TOKEN.
+            provider: LLM provider name (e.g. "openai", "minimax"). When set, the
+                      provider's default base_url, model, and API key env var are used
+                      unless explicitly overridden.  Auto-detected from MINIMAX_API_KEY
+                      when omitted.
         """
-        self.api_key = api_key or os.getenv("API_KEY")
-        self.base_url = base_url or os.getenv("BASE_URL")
+        cfg = resolve_provider_config(
+            provider=provider, api_key=api_key, base_url=base_url
+        )
+        self.api_key = cfg["api_key"]
+        self.base_url = cfg["base_url"]
+        self.provider = provider
+        self._provider_preset = cfg["preset"]
         self.github_token = github_token or os.getenv("GITHUB_TOKEN")
 
 
@@ -194,9 +205,10 @@ class SkillNetClient:
 
         try:
             creator = SkillCreator(
-                api_key=self.api_key, 
-                base_url=self.base_url, 
-                model=model
+                api_key=self.api_key,
+                base_url=self.base_url,
+                model=model,
+                provider=self.provider,
             )
             
             if input_type == "github":
@@ -269,7 +281,8 @@ class SkillNetClient:
             model=model,
             max_workers=max_workers,
             cache_dir=cache_dir,
-            github_token=self.github_token
+            github_token=self.github_token,
+            provider=self.provider,
         )
         evaluator = SkillEvaluator(config)
 
@@ -326,7 +339,8 @@ class SkillNetClient:
             analyzer = SkillRelationshipAnalyzer(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                model=model
+                model=model,
+                provider=self.provider,
             )
             
             results = analyzer.analyze_local_skills(

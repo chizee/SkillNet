@@ -19,6 +19,11 @@ from skillnet_ai.prompts import (
     PROMPT_SKILL_SYSTEM_PROMPT,
     PROMPT_SKILL_USER_PROMPT_TEMPLATE
 )
+from skillnet_ai.providers import (
+    resolve_provider_config,
+    postprocess_response,
+    ProviderPreset,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -26,15 +31,25 @@ class SkillCreator:
     """
     Creates Skill packages from execution trajectories using OpenAI-compatible LLMs.
     """
-    
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, model: str = "gpt-4o"):
-        self.api_key = api_key or os.getenv("API_KEY")
-        self.base_url = base_url or os.getenv("BASE_URL") or "https://api.openai.com/v1"
-        self.model = model
-        
+
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
+    ):
+        cfg = resolve_provider_config(
+            provider=provider, api_key=api_key, base_url=base_url, model=model
+        )
+        self.api_key = cfg["api_key"]
+        self.base_url = cfg["base_url"]
+        self.model = cfg["model"]
+        self._preset: Optional[ProviderPreset] = cfg["preset"]
+
         if not self.api_key:
             raise ValueError("API Key is missing. Please provide it in init or set API_KEY environment variable.")
-            
+
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def _get_llm_response(self, messages: List[dict]) -> str:
@@ -44,7 +59,10 @@ class SkillCreator:
                 model=self.model,
                 messages=messages
             )
-            return response.choices[0].message.content
+            text = response.choices[0].message.content
+            if self._preset:
+                text = postprocess_response(text, self._preset)
+            return text
         except Exception as e:
             logger.error(f"LLM Call Failed: {e}")
             raise

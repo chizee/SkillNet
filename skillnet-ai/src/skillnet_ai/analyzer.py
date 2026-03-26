@@ -9,13 +9,18 @@ from skillnet_ai.prompts import (
     RELATIONSHIP_ANALYSIS_SYSTEM_PROMPT,
     RELATIONSHIP_ANALYSIS_USER_PROMPT_TEMPLATE
 )
+from skillnet_ai.providers import (
+    resolve_provider_config,
+    postprocess_response,
+    ProviderPreset,
+)
 
 logger = logging.getLogger(__name__)
 
 class SkillRelationshipAnalyzer:
     """
     Analyzes a directory of skills to determine relationships between them.
-    
+
     Relationships determined:
     - similar_to: A and B are functionally similar and interchangeable.
     - belong_to: A is a sub-task/part of B (B is the larger scope).
@@ -23,14 +28,24 @@ class SkillRelationshipAnalyzer:
     - depend_on: A requires B to execute (prerequisite).
     """
 
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, model: str = "gpt-4o"):
-        self.api_key = api_key or os.getenv("API_KEY")
-        self.base_url = base_url or os.getenv("BASE_URL") or "https://api.openai.com/v1"
-        self.model = model
-        
+    def __init__(
+        self,
+        api_key: Optional[str] = None,
+        base_url: Optional[str] = None,
+        model: Optional[str] = None,
+        provider: Optional[str] = None,
+    ):
+        cfg = resolve_provider_config(
+            provider=provider, api_key=api_key, base_url=base_url, model=model
+        )
+        self.api_key = cfg["api_key"]
+        self.base_url = cfg["base_url"]
+        self.model = cfg["model"]
+        self._preset: Optional[ProviderPreset] = cfg["preset"]
+
         if not self.api_key:
             raise ValueError("API Key is missing. Please provide it in init or set API_KEY environment variable.")
-            
+
         self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
 
     def analyze_local_skills(self, skills_dir: str, save_to_file: bool = True) -> List[Dict[str, Any]]:
@@ -168,6 +183,8 @@ class SkillRelationshipAnalyzer:
                 messages=messages,
             )
             content = response.choices[0].message.content
+            if self._preset:
+                content = postprocess_response(content, self._preset)
 
             # 1. Extract JSON from tags
             json_str = self._extract_json_from_tags(content, "Skill_Relationships")
