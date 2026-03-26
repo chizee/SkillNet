@@ -101,12 +101,12 @@ Options:
   --prompt TEXT                 Natural-language description
   TRAJECTORY                    Path to trajectory/log file (positional)
   --output-dir TEXT             Output directory  [default: ./generated_skills]
-  --model TEXT                  LLM model  [default: gpt-4o]
-                                Also reads SKILLNET_MODEL env var.
+  --model TEXT                  LLM model (overrides provider default and SKILLNET_MODEL).
+  --provider TEXT               LLM provider (openai, minimax). Auto-detected when omitted.
   --max-files INTEGER           Max files for GitHub mode  [default: 50]
 ```
 
-Model priority: `--model` flag > `SKILLNET_MODEL` env var > `gpt-4o`.
+Model priority: `--model` flag > `SKILLNET_MODEL` env var > provider's default model.
 
 Input types (auto-detected):
 
@@ -127,8 +127,8 @@ Options:
   --name TEXT                   Override skill name
   --category TEXT               Override category
   --description TEXT            Override description
-  --model TEXT                  LLM model  [default: gpt-4o]
-                                Also reads SKILLNET_MODEL env var.
+  --model TEXT                  LLM model (overrides provider default and SKILLNET_MODEL).
+  --provider TEXT               LLM provider (openai, minimax). Auto-detected when omitted.
   --max-workers INTEGER         Concurrency  [default: 5]
 ```
 
@@ -144,8 +144,8 @@ Arguments:
 
 Options:
   --no-save                     Don't write relationships.json
-  --model TEXT                  LLM model  [default: gpt-4o]
-                                Also reads SKILLNET_MODEL env var.
+  --model TEXT                  LLM model (overrides provider default and SKILLNET_MODEL).
+  --provider TEXT               LLM provider (openai, minimax). Auto-detected when omitted.
 ```
 
 Output: `relationships.json` with edges:
@@ -173,7 +173,8 @@ from skillnet_ai import SkillNetClient
 client = SkillNetClient(
     api_key="sk-...",          # env: API_KEY (required for create/evaluate/analyze)
     base_url="https://...",    # env: BASE_URL (optional)
-    github_token="ghp_..."    # env: GITHUB_TOKEN (optional)
+    github_token="ghp_...",    # env: GITHUB_TOKEN (optional)
+    provider="minimax",        # optional: "openai" (default) or "minimax" (auto-detected)
 )
 ```
 
@@ -211,13 +212,16 @@ Returns `List[Dict[str, Any]]` — relationship edges.
 
 ## Environment Variables
 
-| Variable         | Purpose                                  | Required                      |
-| ---------------- | ---------------------------------------- | ----------------------------- |
-| `API_KEY`        | LLM API key (OpenAI-compatible)          | For create, evaluate, analyze |
-| `BASE_URL`       | Custom LLM endpoint                      | No (defaults to OpenAI)       |
-| `GITHUB_TOKEN`   | GitHub PAT for private repos             | No                            |
-| `SKILLNET_MODEL` | Default LLM model for all commands       | No (defaults to `gpt-4o`)     |
-| `GITHUB_MIRROR`  | Mirror URL for faster downloads          | No                            |
+| Variable          | Purpose                            | Required                      |
+| ----------------- | ---------------------------------- | ----------------------------- |
+| `API_KEY`         | LLM API key (OpenAI-compatible)    | For create, evaluate, analyze |
+| `MINIMAX_API_KEY` | MiniMax API key (auto-detected)    | For MiniMax provider          |
+| `BASE_URL`        | Custom LLM endpoint                | No (defaults to OpenAI)       |
+| `GITHUB_TOKEN`    | GitHub PAT for private repos       | No                            |
+| `SKILLNET_MODEL`  | Default LLM model for all commands | No (defaults to `gpt-4o`)     |
+| `GITHUB_MIRROR`   | Mirror URL for faster downloads    | No                            |
+
+**Provider detection priority:** explicit `--provider` flag > URL-based detection > `MINIMAX_API_KEY` env var presence > OpenAI fallback.
 
 ## Security & Privacy
 
@@ -249,13 +253,13 @@ export GITHUB_TOKEN="<value>"  # only if needed
 
 ### Command ↔ Variable Requirement
 
-| Command             | `API_KEY`    | `BASE_URL` | `GITHUB_TOKEN`                | `SKILLNET_MODEL` | `GITHUB_MIRROR` |
-| ------------------- | ------------ | ---------- | ----------------------------- | ----------------- | --------------- |
-| `skillnet search`   | —            | —          | —                             | —                 | —               |
-| `skillnet download` | —            | —          | Private repos only            | —                 | Optional        |
-| `skillnet create`   | **Required** | Optional   | `--github` private repos only | Optional          | —               |
-| `skillnet evaluate` | **Required** | Optional   | —                             | Optional          | —               |
-| `skillnet analyze`  | **Required** | Optional   | —                             | Optional          | —               |
+| Command             | `API_KEY`    | `MINIMAX_API_KEY` | `BASE_URL` | `GITHUB_TOKEN`                | `SKILLNET_MODEL` | `GITHUB_MIRROR` |
+| ------------------- | ------------ | ----------------- | ---------- | ----------------------------- | ---------------- | --------------- |
+| `skillnet search`   | —            | —                 | —          | —                             | —                | —               |
+| `skillnet download` | —            | —                 | —          | Private repos only            | —                | Optional        |
+| `skillnet create`   | **Required** | Alt. to API_KEY   | Optional   | `--github` private repos only | Optional         | —               |
+| `skillnet evaluate` | **Required** | Alt. to API_KEY   | Optional   | —                             | Optional         | —               |
+| `skillnet analyze`  | **Required** | Alt. to API_KEY   | Optional   | —                             | Optional         | —               |
 
 **No env vars are required for install, search, or download (public repos).**
 
@@ -263,7 +267,7 @@ export GITHUB_TOKEN="<value>"  # only if needed
 
 **API_KEY** — triggered before `create`/`evaluate`/`analyze` when not configured:
 
-> I need an OpenAI-compatible API_KEY (used only for create/evaluate/analyze in this run). Optionally provide BASE_URL and model name (default gpt-4o). May I proceed with your key?
+> I need an OpenAI-compatible API_KEY (or MINIMAX_API_KEY for MiniMax) for create/evaluate/analyze in this run. Optionally provide BASE_URL, model name (default: provider's default), or `--provider minimax`. May I proceed with your key?
 
 **GITHUB_TOKEN** — triggered only on private repo access or rate-limit (403):
 

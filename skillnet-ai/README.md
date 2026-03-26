@@ -36,7 +36,7 @@ client.download(url=results[0].skill_url, target_dir="./my_skills")
 
 That's it. Search and download are free — no API key, no rate limit.
 
-> For **create**, **evaluate**, and **analyze**, set `API_KEY` (any OpenAI-compatible key). See [Configuration](#%EF%B8%8F-configuration).
+> For **create**, **evaluate**, and **analyze**, set `API_KEY` (any OpenAI-compatible key) or `MINIMAX_API_KEY` (for MiniMax). See [Configuration](#%EF%B8%8F-configuration).
 
 ---
 
@@ -61,12 +61,15 @@ from skillnet_ai import SkillNetClient
 
 client = SkillNetClient(
     api_key="sk-...",         # Required for create / evaluate / analyze
+    # provider="minimax",     # Optional: "openai" (default) or "minimax"
     # base_url="...",         # Optional: custom LLM endpoint (default: OpenAI)
     # github_token="ghp-..." # Optional: for private repos or higher rate limits
 )
 ```
 
 Credentials can also be set via environment variables: `API_KEY`, `BASE_URL`, `GITHUB_TOKEN`.
+
+Provider is auto-detected when `MINIMAX_API_KEY` is set. See [Using MiniMax](#using-minimax-as-llm-provider) for details.
 
 ### Search
 
@@ -124,6 +127,9 @@ client.create(office_file="./guide.pdf", output_dir="./skills")
 
 # From a natural language description
 client.create(prompt="A skill for web scraping article titles", output_dir="./skills")
+
+# Use a specific model
+client.create(prompt="A skill for PDF parsing", output_dir="./skills", model="gpt-4o")
 ```
 
 All modes auto-generate a complete skill package: `SKILL.md` + optional `scripts/`, `references/`, `assets/`.
@@ -180,6 +186,8 @@ skillnet <command> --help    # Full options for any command
 | `evaluate` | Quality report         | `skillnet evaluate ./my_skill`        |
 | `analyze`  | Relationship graph     | `skillnet analyze ./my_skills`        |
 
+> All LLM-powered commands (`create`, `evaluate`, `analyze`) support `--provider` (e.g. `--provider minimax`) and `--model` flags.
+
 ### Search
 
 ```bash
@@ -207,6 +215,7 @@ skillnet create --github https://github.com/owner/repo      # from GitHub repo
 skillnet create --office ./docs/guide.pdf                    # from PDF/PPT/Word
 skillnet create --prompt "A skill for table extraction"      # from prompt
 skillnet create --office report.pdf --model gpt-4o           # custom model
+skillnet create --provider minimax --prompt "web scraping"   # use MiniMax
 ```
 
 ### Evaluate
@@ -215,6 +224,7 @@ skillnet create --office report.pdf --model gpt-4o           # custom model
 skillnet evaluate ./my_skills/web_search
 skillnet evaluate https://github.com/anthropics/skills/tree/main/skills/algorithmic-art
 skillnet evaluate ./my_skill --category "Development" --model gpt-4o
+skillnet evaluate --provider minimax ./my_skill
 ```
 
 ### Analyze
@@ -223,6 +233,7 @@ skillnet evaluate ./my_skill --category "Development" --model gpt-4o
 skillnet analyze ./my_skills
 skillnet analyze ./my_skills --no-save     # print only, don't write file
 skillnet analyze ./my_skills --model gpt-4o
+skillnet analyze --provider minimax ./my_skills
 ```
 
 ---
@@ -231,13 +242,14 @@ skillnet analyze ./my_skills --model gpt-4o
 
 ### Environment Variables
 
-| Variable         | Required For                       | Default                     |
-| :--------------- | :--------------------------------- | :-------------------------- |
-| `API_KEY`        | `create` · `evaluate` · `analyze`  | —                           |
-| `BASE_URL`       | Custom LLM endpoint                | `https://api.openai.com/v1` |
-| `GITHUB_TOKEN`   | Private repos / higher rate limits | —                           |
-| `SKILLNET_MODEL` | Default LLM model for all commands | `gpt-4o`                    |
-| `GITHUB_MIRROR`  | Faster downloads in restricted networks | —                      |
+| Variable          | Required For                            | Default                     |
+| :---------------- | :-------------------------------------- | :-------------------------- |
+| `API_KEY`         | `create` · `evaluate` · `analyze`       | —                           |
+| `MINIMAX_API_KEY` | MiniMax provider (auto-detected)        | —                           |
+| `BASE_URL`        | Custom LLM endpoint                     | `https://api.openai.com/v1` |
+| `GITHUB_TOKEN`    | Private repos / higher rate limits      | —                           |
+| `SKILLNET_MODEL`  | Default LLM model for all commands      | `gpt-4o`                    |
+| `GITHUB_MIRROR`   | Faster downloads in restricted networks | —                           |
 
 > `search` and `download` (public repos) require **no credentials at all**.
 >
@@ -262,6 +274,47 @@ Or pass credentials directly in code:
 ```python
 client = SkillNetClient(api_key="sk-...", base_url="https://...")
 ```
+
+### Using MiniMax as LLM Provider
+
+SkillNet supports [MiniMax](https://www.minimax.io/) as a first-class LLM provider. MiniMax offers the M2.7 model with a 1M-token context window and OpenAI-compatible API.
+
+**Quick start — environment variable (auto-detected):**
+
+```bash
+export MINIMAX_API_KEY="your-minimax-api-key"
+skillnet create --prompt "A skill for web scraping"
+# Provider, base URL, and model are auto-configured
+```
+
+**Explicit provider flag:**
+
+```bash
+skillnet create --provider minimax --prompt "A skill for web scraping"
+skillnet evaluate --provider minimax ./my_skill
+skillnet analyze --provider minimax ./my_skills
+```
+
+**Python SDK:**
+
+```python
+from skillnet_ai import SkillNetClient
+
+# Auto-detected when MINIMAX_API_KEY is set
+client = SkillNetClient()
+
+# Or explicit provider
+client = SkillNetClient(provider="minimax", api_key="your-minimax-api-key")
+```
+
+**Provider comparison:**
+
+| Provider  | Default Model  | Base URL                    | API Key Env       |
+| :-------- | :------------- | :-------------------------- | :---------------- |
+| `openai`  | `gpt-4o`       | `https://api.openai.com/v1` | `API_KEY`         |
+| `minimax` | `MiniMax-M2.7` | `https://api.minimax.io/v1` | `MINIMAX_API_KEY` |
+
+**Model priority:** `--model` flag > `SKILLNET_MODEL` env var > provider's default model.
 
 ---
 

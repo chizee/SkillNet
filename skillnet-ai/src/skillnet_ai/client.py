@@ -155,7 +155,7 @@ class SkillNetClient:
         office_file: Optional[str] = None,
         prompt: Optional[str] = None,
         output_dir: Union[str, Path] = "./generated_skills",
-        model: str = DEFAULT_MODEL,
+        model: Optional[str] = None,
         max_files: int = 50
     ) -> List[str]:
         """
@@ -254,7 +254,7 @@ class SkillNetClient:
         name: Optional[str] = None,
         category: Optional[str] = None,
         description: Optional[str] = None,
-        model: str = DEFAULT_MODEL,
+        model: Optional[str] = None,
         max_workers: int = 5,
         cache_dir: Union[str, Path] = "./evaluate_cache_dir"
     ) -> Dict[str, Any]:
@@ -316,7 +316,7 @@ class SkillNetClient:
         self,
         skills_dir: Union[str, Path],
         save_to_file: bool = True,
-        model: str = DEFAULT_MODEL
+        model: Optional[str] = None
     ) -> List[Dict[str, Any]]:
         """
         Analyze a local directory containing multiple skills to infer relationships between them.

@@ -35,7 +35,6 @@ Search 300,000+ community skills · One-line install · Auto-create from repos /
 
 ![graph-ezgif com-optimize](https://github.com/user-attachments/assets/1d27d046-48a1-4ab2-a6f5-58c8fa07a134)
 
-
 ## 📢 News
 
 - **🔌 [2026-03-12] SkillNet MCP Server Released!** — We've launched the Model Context Protocol (MCP) integration (maintained by [CycleChain](https://github.com/CycleChain), special thanks for this great contribution!). [Learn more →](#-model-context-protocol-mcp-integration)
@@ -168,6 +167,7 @@ from skillnet_ai import SkillNetClient
 
 client = SkillNetClient(
     api_key="sk-...",         # Required for create / evaluate / analyze
+    # provider="minimax",     # Optional: "openai" (default) or "minimax"
     # base_url="...",         # Optional: custom LLM endpoint
     # github_token="ghp-..." # Optional: for private repos
 )
@@ -250,6 +250,8 @@ The CLI ships with `pip install skillnet-ai` and offers the same features with r
 | `evaluate` | Quality report         | `skillnet evaluate ./my_skill`           |
 | `analyze`  | Relationship graph     | `skillnet analyze ./my_skills`           |
 
+> All LLM-powered commands (`create`, `evaluate`, `analyze`) support `--provider` (e.g. `--provider minimax`) and `--model` flags. See [Using MiniMax as LLM Provider](#using-minimax-as-llm-provider) for details.
+>
 > Use `skillnet <command> --help` for full options.
 
 ### Search
@@ -285,6 +287,9 @@ skillnet create --office ./docs/guide.pdf
 
 # From prompt
 skillnet create --prompt "A skill for extracting tables from images"
+
+# Use a specific provider
+skillnet create --provider minimax --prompt "A skill for web scraping"
 ```
 
 ### Evaluate
@@ -293,6 +298,7 @@ skillnet create --prompt "A skill for extracting tables from images"
 skillnet evaluate https://github.com/anthropics/skills/tree/main/skills/algorithmic-art
 skillnet evaluate ./my_skills/web_search
 skillnet evaluate ./my_skills/tool --category "Development" --model gpt-4o
+skillnet evaluate --provider minimax ./my_skill
 ```
 
 ### Analyze
@@ -301,6 +307,7 @@ skillnet evaluate ./my_skills/tool --category "Development" --model gpt-4o
 skillnet analyze ./my_agent_skills
 skillnet analyze ./my_agent_skills --no-save   # print only, don't write file
 skillnet analyze ./my_agent_skills --model gpt-4o
+skillnet analyze --provider minimax ./my_agent_skills
 ```
 
 ---
@@ -309,14 +316,14 @@ skillnet analyze ./my_agent_skills --model gpt-4o
 
 ### Environment Variables
 
-| Variable         | Required For                       | Default                     |
-| :--------------- | :--------------------------------- | :-------------------------- |
-| `API_KEY`        | `create` · `evaluate` · `analyze`  | —                           |
-| `MINIMAX_API_KEY`| MiniMax provider (auto-detected)   | —                           |
-| `BASE_URL`       | Custom LLM endpoint                | `https://api.openai.com/v1` |
-| `GITHUB_TOKEN`   | Private repos / higher rate limits | —                           |
-| `SKILLNET_MODEL` | Default LLM model for all commands | `gpt-4o`                    |
-| `GITHUB_MIRROR`  | Faster downloads in restricted networks | —                      |
+| Variable          | Required For                            | Default                     |
+| :---------------- | :-------------------------------------- | :-------------------------- |
+| `API_KEY`         | `create` · `evaluate` · `analyze`       | —                           |
+| `MINIMAX_API_KEY` | MiniMax provider (auto-detected)        | —                           |
+| `BASE_URL`        | Custom LLM endpoint                     | `https://api.openai.com/v1` |
+| `GITHUB_TOKEN`    | Private repos / higher rate limits      | —                           |
+| `SKILLNET_MODEL`  | Default LLM model for all commands      | `gpt-4o`                    |
+| `GITHUB_MIRROR`   | Faster downloads in restricted networks | —                           |
 
 > `search` and `download` (public repos) work without any credentials.
 >
@@ -376,10 +383,10 @@ client.create(prompt="A skill for PDF parsing", output_dir="./skills")
 client.evaluate(target="./skills/pdf-parser")
 ```
 
-| Provider | Default Model    | Base URL                      | API Key Env        |
-| :------- | :--------------- | :---------------------------- | :----------------- |
-| `openai` | `gpt-4o`         | `https://api.openai.com/v1`   | `API_KEY`          |
-| `minimax`| `MiniMax-M2.7`   | `https://api.minimax.io/v1`   | `MINIMAX_API_KEY`  |
+| Provider  | Default Model  | Base URL                    | API Key Env       |
+| :-------- | :------------- | :-------------------------- | :---------------- |
+| `openai`  | `gpt-4o`       | `https://api.openai.com/v1` | `API_KEY`         |
+| `minimax` | `MiniMax-M2.7` | `https://api.minimax.io/v1` | `MINIMAX_API_KEY` |
 
 ---
 
@@ -388,7 +395,6 @@ client.evaluate(target="./skills/pdf-parser")
 A complete end-to-end demo showing how an AI Agent uses SkillNet to autonomously plan and execute a complex scientific workflow — from raw scRNA-seq data to a cancer target validation report.
 
 ![science2](https://github.com/user-attachments/assets/5b65865a-312a-4dd7-ae80-ee1f968e2702)
-
 
 <table>
 <tr><td>1️⃣</td><td><b>Task</b></td><td>User provides a goal: "Analyze scRNA-seq data to find cancer targets"</td></tr>
@@ -434,7 +440,7 @@ Install the skillnet skill from ClawHub.
 
 ### ⚙️ Configuration
 
-The same three parameters (`API_KEY`, `BASE_URL`, `GITHUB_TOKEN`) apply here — see [Configuration](#configuration) for details.
+The same environment variables (`API_KEY`, `BASE_URL`, `GITHUB_TOKEN`, `MINIMAX_API_KEY`) apply here — see [Configuration](#configuration) for details.
 
 In OpenClaw, you can pre-configure them in `openclaw.json` so the agent uses them silently — no prompts, no interruptions. If not configured, the agent only asks when a command actually needs the value, injects it for that single call, and never pollutes the global environment.
 
@@ -486,6 +492,7 @@ It empowers agents to autonomously search, download, create, and evaluate 300,00
 ### Installation Options
 
 #### 1. Source Build (Node.js & Python)
+
 Ideal for users who want to run the server locally with existing dependencies.
 
 ```bash
@@ -507,6 +514,7 @@ docker pull fmdogancan/skillnet-mcp:latest
 Add the following to your `claude_desktop_config.json`:
 
 #### Option A: Docker (Recommended)
+
 ```json
 {
   "mcpServers": {
@@ -549,8 +557,8 @@ _(Then, replace `fmdogancan/skillnet-mcp:latest` with `skillnet-mcp-local` in th
 
 ### Supported Environment Variables
 
-* `API_KEY`: Your API key
-* `GITHUB_TOKEN`: GitHub token for private repositories
+- `API_KEY`: Your API key
+- `GITHUB_TOKEN`: GitHub token for private repositories
 
 ---
 
@@ -572,16 +580,16 @@ You can also [open an Issue](https://github.com/zjunlp/SkillNet/issues) to repor
 
 ## 📚 Citation
 
-If you find this work useful, please kindly ⭐ the repo and cite our paper!  
+If you find this work useful, please kindly ⭐ the repo and cite our paper!
 
 ```bibtex
 @misc{liang2026skillnetcreateevaluateconnect,
-      title={SkillNet: Create, Evaluate, and Connect AI Skills}, 
+      title={SkillNet: Create, Evaluate, and Connect AI Skills},
       author={Yuan Liang and Ruobin Zhong and Haoming Xu and Chen Jiang and Yi Zhong and Runnan Fang and Jia-Chen Gu and Shumin Deng and Yunzhi Yao and Mengru Wang and Shuofei Qiao and Xin Xu and Tongtong Wu and Kun Wang and Yang Liu and Zhen Bi and Jungang Lou and Yuchen Eleanor Jiang and Hangcheng Zhu and Gang Yu and Haiwen Hong and Longtao Huang and Hui Xue and Chenxi Wang and Yijun Wang and Zifei Shan and Xi Chen and Zhaopeng Tu and Feiyu Xiong and Xin Xie and Peng Zhang and Zhengke Gui and Lei Liang and Jun Zhou and Chiyu Wu and Jin Shang and Yu Gong and Junyu Lin and Changliang Xu and Hongjie Deng and Wen Zhang and Keyan Ding and Qiang Zhang and Fei Huang and Ningyu Zhang and Jeff Z. Pan and Guilin Qi and Haofen Wang and Huajun Chen},
       year={2026},
       eprint={2603.04448},
       archivePrefix={arXiv},
       primaryClass={cs.AI},
-      url={https://arxiv.org/abs/2603.04448}, 
+      url={https://arxiv.org/abs/2603.04448},
 }
 ```

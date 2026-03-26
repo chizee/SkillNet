@@ -3,6 +3,7 @@
 ## Credential Scope
 
 - **API_KEY**: Used solely for authenticating with your chosen LLM endpoint (`BASE_URL`). **Never** sent to the SkillNet search API or any other third party.
+- **MINIMAX_API_KEY**: Used solely for authenticating with the MiniMax LLM endpoint (`https://api.minimax.io/v1`). Auto-detected as the provider key when set. **Never** sent to the SkillNet search API or any other third party.
 - **GITHUB_TOKEN**: Sent only to `api.github.com` to access repositories. Only `repo:read` scope is needed. Never forwarded to any other service.
 
 ## Network Endpoints & Data Flow

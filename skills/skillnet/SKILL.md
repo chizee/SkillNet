@@ -165,7 +165,18 @@ skillnet create trajectory.txt --output-dir ~/.openclaw/workspace/skills
 # From natural-language description
 skillnet create --prompt "A skill for managing Docker Compose" \
   --output-dir ~/.openclaw/workspace/skills
+
+# Use MiniMax provider (auto-detected when MINIMAX_API_KEY is set, or explicit)
+skillnet create --provider minimax --prompt "A skill for web scraping" \
+  --output-dir ~/.openclaw/workspace/skills
 ```
+
+All LLM-powered commands (`create`, `evaluate`, `analyze`) support `--provider` (e.g. `--provider minimax`) and `--model` flags. Provider is auto-detected when `MINIMAX_API_KEY` is set. Model resolution: `--model` flag > `SKILLNET_MODEL` env var > provider's default model.
+
+| Provider  | Default Model  | API Key Env       |
+| --------- | -------------- | ----------------- |
+| `openai`  | `gpt-4o`       | `API_KEY`         |
+| `minimax` | `MiniMax-M2.7` | `MINIMAX_API_KEY` |
 
 **Always evaluate after creating:**
 
@@ -240,13 +251,14 @@ During execution, if any of these occur, suggest the action to the user and proc
 
 ## Environment Variables
 
-| Variable         | Needed for                             | Default                     |
-| ---------------- | -------------------------------------- | --------------------------- |
-| `API_KEY`        | create, evaluate, analyze              | —                           |
-| `BASE_URL`       | custom LLM endpoint                    | `https://api.openai.com/v1` |
-| `GITHUB_TOKEN`   | private repos / rate limits            | — (60 req/hr without)       |
-| `SKILLNET_MODEL` | default LLM model for all commands     | `gpt-4o`                    |
-| `GITHUB_MIRROR`  | faster downloads in restricted networks | —                          |
+| Variable          | Needed for                              | Default                     |
+| ----------------- | --------------------------------------- | --------------------------- |
+| `API_KEY`         | create, evaluate, analyze               | —                           |
+| `MINIMAX_API_KEY` | MiniMax provider (auto-detected)        | —                           |
+| `BASE_URL`        | custom LLM endpoint                     | `https://api.openai.com/v1` |
+| `GITHUB_TOKEN`    | private repos / rate limits             | — (60 req/hr without)       |
+| `SKILLNET_MODEL`  | default LLM model for all commands      | `gpt-4o`                    |
+| `GITHUB_MIRROR`   | faster downloads in restricted networks | —                           |
 
 **No credentials needed for install, search, or download (public repos).** For credential setup, ask templates, and OpenClaw config, see `references/api-reference.md` → "Credential Strategy".
 

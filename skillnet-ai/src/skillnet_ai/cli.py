@@ -182,7 +182,7 @@ def create(
     # Output options
     output_dir: Path = typer.Option(Path("./generated_skills"), "--output-dir", "-d", help="Directory to save generated skills."),
     # Model options
-    model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="LLM model to use (e.g., gpt-4o, gpt-3.5-turbo)."),
+    model: str = typer.Option(None, "--model", "-m", help="LLM model to use (e.g., gpt-4o, MiniMax-M2.7). Defaults to provider's default model."),
     max_files: int = typer.Option(50, "--max-files", help="Max code files to analyze (--github only)."),
     provider: str = typer.Option(None, "--provider", help=f"LLM provider ({', '.join(SUPPORTED_PROVIDERS)}). Auto-detected when omitted."),
 ):
@@ -223,15 +223,16 @@ def create(
         console.print("[bold red]Error:[/bold red] Only one input source can be specified at a time.")
         raise typer.Exit(code=1)
 
-    # 3. Route to appropriate handler
+    # 3. Route to appropriate handler (use resolved model from provider config)
+    resolved_model = cfg["model"]
     if github:
-        _create_from_github(github, output_dir, model, max_files, provider)
+        _create_from_github(github, output_dir, resolved_model, max_files, provider)
     elif trajectory_file:
-        _create_from_trajectory(trajectory_file, output_dir, model, provider)
+        _create_from_trajectory(trajectory_file, output_dir, resolved_model, provider)
     elif office:
-        _create_from_office(office, output_dir, model, provider)
+        _create_from_office(office, output_dir, resolved_model, provider)
     elif prompt:
-        _create_from_prompt(prompt, output_dir, model, provider)
+        _create_from_prompt(prompt, output_dir, resolved_model, provider)
 
 
 def _create_from_trajectory(trajectory_file: Path, output_dir: Path, model: str, provider: str = None):
@@ -429,7 +430,7 @@ def evaluate(
     description: str = typer.Option(None, help="Short description of what the skill does."),
     
     # Config options
-    model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="LLM model to use."),
+    model: str = typer.Option(None, "--model", "-m", help="LLM model to use. Defaults to provider's default model."),
     max_workers: int = typer.Option(5, help="Concurrency for batch operations (not used for single eval)."),
     provider: str = typer.Option(None, "--provider", help=f"LLM provider ({', '.join(SUPPORTED_PROVIDERS)}). Auto-detected when omitted."),
 ):
@@ -527,7 +528,7 @@ def _display_evaluation_report(target_name: str, data: dict):
 def analyze(
     skills_dir: Path = typer.Argument(..., exists=True, file_okay=False, help="Directory containing multiple skill folders to analyze."),
     save: bool = typer.Option(True, "--save/--no-save", help="Save the result to relationships.json in the directory."),
-    model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="LLM model to use."),
+    model: str = typer.Option(None, "--model", "-m", help="LLM model to use. Defaults to provider's default model."),
     provider: str = typer.Option(None, "--provider", help=f"LLM provider ({', '.join(SUPPORTED_PROVIDERS)}). Auto-detected when omitted."),
 ):
     """
