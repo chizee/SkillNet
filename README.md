@@ -6,7 +6,7 @@
 <p><strong>Open Infrastructure for Creating, Evaluating, and Connecting AI Agent Skills</strong></p>
 
 <p>
-Search 300,000+ community skills · One-line install · Auto-create from repos / docs / logs<br/>
+Search 400,000+ community skills · One-line install · Auto-create from repos / docs / logs<br/>
 5-dimension quality scoring · Semantic relationship graph
 </p>
 
@@ -37,7 +37,7 @@ Search 300,000+ community skills · One-line install · Auto-create from repos /
 
 
 ## 📢 News
-- **🤖 [2026-03-26] JiuwenClaw × SkillNet Integrated!** — [JiuwenClaw](https://github.com/openJiuwen-ai/jiuwenclaw) now natively integrates SkillNet as its built-in skill marketplace. One-click search and install from over 300,000 skills. [View Guide →](./examples/JiuwenClaw/README.md)
+- **🤖 [2026-03-26] JiuwenClaw × SkillNet Integrated!** — [JiuwenClaw](https://github.com/openJiuwen-ai/jiuwenclaw) now natively integrates SkillNet as its built-in skill marketplace. One-click search and install curated skills. [View Guide →](./examples/JiuwenClaw/README.md)
 
 - **🔌 [2026-03-12] SkillNet MCP Server Released!** — We've launched the Model Context Protocol (MCP) integration (maintained by [CycleChain](https://github.com/CycleChain), special thanks for this great contribution!). [Learn more →](#-model-context-protocol-mcp-integration)
 
