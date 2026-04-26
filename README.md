@@ -370,6 +370,9 @@ SkillNet integrates with [OpenClaw](https://github.com/openclaw/openclaw) as a b
 
 > Community skills guide execution → successful outcomes become new skills → periodic analysis keeps the library clean.
 
+<details>
+<summary><b>📡 Full Usage Reference</b></summary>
+    
 ### 📥 Installation
 
 **Prerequisites:** [OpenClaw](https://github.com/openclaw/openclaw) installed (default workspace: `~/.openclaw/workspace`)
@@ -431,6 +434,8 @@ Create a skill from this GitHub repo: https://github.com/owner/repo (then evalua
 
 > The skill source is also available at [`skills/skillnet/`](skills/skillnet/) for reference.
 
+</details>
+
 ---
 
 ## 🔌 Model Context Protocol (MCP) Integration
@@ -438,6 +443,9 @@ Create a skill from this GitHub repo: https://github.com/owner/repo (then evalua
 The **SkillNet MCP Server** (maintained by [CycleChain](https://github.com/CycleChain)) is a high-performance bridge that enables AI agents (such as Claude Desktop, Cursor, Antigravity and Windsurf) to interact with the SkillNet ecosystem using the [Model Context Protocol](https://modelcontextprotocol.io/).
 
 It empowers agents to autonomously search, download, create, and evaluate 300,000+ specialized skills directly within your IDE or desktop environment.
+
+<details>
+<summary><b>📡 Full Usage Reference</b></summary>
 
 ### Installation Options
 
@@ -507,6 +515,8 @@ _(Then, replace `fmdogancan/skillnet-mcp:latest` with `skillnet-mcp-local` in th
 
 * `API_KEY`: Your API key
 * `GITHUB_TOKEN`: GitHub token for private repositories
+
+</details>
 
 ---
 
