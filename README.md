@@ -26,8 +26,9 @@ Search 400,000+ community skills · One-line install · Auto-create from repos /
   <a href="https://huggingface.co/blog/xzwnlp/skillnet">HuggingFace</a> •
   <a href="#-contributing">Contributing</a> •
   <a href="https://x.com/_akhaliq/status/2030024322308342160" target="_blank">Featured By AK</a>
-</p>
-</div> -->
+</p> -->
+
+</div>
 
 <h5 align="center"> ⭐ If you like our project, please give us a star on GitHub for the latest updates!</h5>
 
