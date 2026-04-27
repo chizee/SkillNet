@@ -29,6 +29,8 @@ Search 400,000+ community skills · One-line install · Auto-create from repos /
 </p>
 </div>
 
+<h5 align="center"> ⭐ If you like our project, please give us a star on GitHub for the latest updates!</h5>
+
 ---
 
 **SkillNet** is an open-source platform that treats AI agent skills as first-class, shareable packages — like npm for AI capabilities. It provides end-to-end tooling to **search**, **install**, **create**, **evaluate**, and **organize** skills, so agents can learn from the community and continuously grow.
