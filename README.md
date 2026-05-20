@@ -6,7 +6,7 @@
 <p><strong>Open Infrastructure for Creating, Evaluating, and Connecting AI Agent Skills</strong></p>
 
 <p>
-Search 400,000+ community skills · One-line install · Auto-create from repos / docs / logs<br/>
+Search 500,000+ community skills · One-line install · Auto-create from repos / docs / logs<br/>
 5-dimension quality scoring · Semantic relationship graph
 </p>
 
@@ -453,7 +453,7 @@ Create a skill from this GitHub repo: https://github.com/owner/repo (then evalua
 
 The **SkillNet MCP Server** (maintained by [CycleChain](https://github.com/CycleChain)) is a high-performance bridge that enables AI agents (such as Claude Desktop, Cursor, Antigravity and Windsurf) to interact with the SkillNet ecosystem using the [Model Context Protocol](https://modelcontextprotocol.io/).
 
-It empowers agents to autonomously search, download, create, and evaluate 300,000+ specialized skills directly within your IDE or desktop environment.
+It empowers agents to autonomously search, download, create, and evaluate 500,000+ specialized skills directly within your IDE or desktop environment.
 
 <details>
 <summary><b>📡 Full Usage Reference</b></summary>
