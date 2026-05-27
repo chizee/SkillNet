@@ -231,7 +231,7 @@ For credential scope, network endpoints, data flow details, and user confirmatio
 
 Credentials follow a **"transparent — always inform the user which credentials are being used"** pattern:
 
-1. **If already configured** (via `openclaw.json`, environment, or earlier in the session) → use the configured credentials and briefly inform the user (e.g., "Using your configured API_KEY").
+1. **If already configured** (via the host agent's config, environment variables, or earlier in the session) → use the configured credentials and briefly inform the user (e.g., "Using your configured API_KEY").
 2. **If missing and the command needs it** → ask the user **once** using the standard ask templates below.
 3. **If the user declines** → acknowledge and continue the main task. Never block.
 
@@ -239,7 +239,7 @@ Credentials follow a **"transparent — always inform the user which credentials
 
 ```bash
 # One-shot injection (does not pollute the global environment)
-API_KEY="..." BASE_URL="..." skillnet create --prompt "..." --output-dir ~/.openclaw/workspace/skills
+API_KEY="..." BASE_URL="..." skillnet create --prompt "..." --output-dir "<skills-dir>"
 
 # Or export for the session if multiple commands follow
 export API_KEY="<value>"
@@ -273,9 +273,11 @@ export GITHUB_TOKEN="<value>"  # only if needed
 
 > Would you like to use a custom LLM BASE_URL? (default `https://api.openai.com/v1`)
 
-### OpenClaw Pre-Configuration (Silent Use)
+### Host-Agent Pre-Configuration
 
-If credentials are provided in `openclaw.json`, they are injected automatically — no prompts, no interruptions:
+Some agents can inject skill environment variables from their own configuration. If credentials are already provided by the host agent, use them without asking for the secret again, but still tell the user which endpoint and credential type will be used.
+
+OpenClaw example:
 
 ```json
 {
@@ -296,6 +298,7 @@ If credentials are provided in `openclaw.json`, they are injected automatically 
 
 - `apiKey` → injected as `API_KEY` (bound via `primaryEnv` in metadata).
 - `env.BASE_URL` / `env.GITHUB_TOKEN` → injected as environment variables.
+- Codex/Claude Code/general agents: prefer environment variables (`API_KEY`, `BASE_URL`, `GITHUB_TOKEN`, `SKILLNET_MODEL`, `SKILLNET_SKILLS_DIR`) or the host's documented per-skill secret mechanism.
 - Once configured, commands use these credentials automatically. The agent will still inform the user before executing security-sensitive operations.
 
 ### Terminology Note

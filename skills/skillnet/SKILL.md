@@ -9,27 +9,30 @@ description: |
   (5) User wants to evaluate skill quality or organize/analyze a local skill library.
   NOT for: single trivial operations (rename variable, fix typo), or tasks with no reusable knowledge.
 metadata:
-  openclaw:
-    emoji: "🧠"
-    requires:
-      anyBins: ["python3", "python"]
-    primaryEnv: API_KEY
-    install:
-      - id: pipx
-        kind: shell
-        command: pipx install skillnet-ai
-        bins: ["skillnet"]
-        label: Install skillnet-ai via pipx (recommended, isolated environment)
-      - id: pip
-        kind: shell
-        command: pip install skillnet-ai
-        bins: ["skillnet"]
-        label: Install skillnet-ai via pip
+  primaryEnv: API_KEY
+  install:
+    - command: pipx install skillnet-ai
+      bins: ["skillnet"]
+      label: Install skillnet-ai via pipx (recommended, isolated environment)
+    - command: pip install skillnet-ai
+      bins: ["skillnet"]
+      label: Install skillnet-ai via pip
 ---
 
 # SkillNet
 
 Search a global skill library, download with one command, create from repos/docs/logs, evaluate quality, and analyze relationships.
+
+## Platform-Neutral Use
+
+This skill is portable across agents that understand `SKILL.md` directories, including Codex, Claude Code, OpenClaw, and similar tools. Use a single placeholder, `<skills-dir>`, for the local skill library:
+
+- If the user or host agent provides a skills directory, use that.
+- Else if `SKILLNET_SKILLS_DIR` is set, use it.
+- Else use the active agent's conventional directory: Codex `$CODEX_HOME/skills` or `~/.codex/skills`, Claude Code `~/.claude/skills`, OpenClaw `~/.openclaw/workspace/skills`.
+- If none is clear, ask once or use `./generated_skills` for newly created skills.
+
+Never hard-code one agent's directory in reusable commands. In shell examples below, replace `<skills-dir>` with the selected directory.
 
 ## Core Principle: Search Before You Build — But Don't Block on It
 
@@ -86,23 +89,23 @@ After confirming with the user, download the skill:
 
 ```bash
 # Download to local skill library (GitHub URLs only)
-skillnet download "<skill-url>" -d ~/.openclaw/workspace/skills
+skillnet download "<skill-url>" -d "<skills-dir>"
 ```
 
 **Post-download review** — before loading any content into the agent's context, show the user what was downloaded:
 
 ```bash
 # 1. Show file listing so user can review what was downloaded
-ls -la ~/.openclaw/workspace/skills/<skill-name>/
+ls -la "<skills-dir>/<skill-name>/"
 
 # 2. Show first 20 lines of SKILL.md as a preview
-head -20 ~/.openclaw/workspace/skills/<skill-name>/SKILL.md
+head -20 "<skills-dir>/<skill-name>/SKILL.md"
 
 # 3. Only after user approves, read the full SKILL.md
-cat ~/.openclaw/workspace/skills/<skill-name>/SKILL.md
+cat "<skills-dir>/<skill-name>/SKILL.md"
 
 # 4. List scripts (if any) — show content to user for review before using
-ls ~/.openclaw/workspace/skills/<skill-name>/scripts/ 2>/dev/null
+ls "<skills-dir>/<skill-name>/scripts/" 2>/dev/null
 ```
 
 No user permission needed to search. **Always confirm with the user before downloading, loading, or executing any downloaded content.**
@@ -121,8 +124,8 @@ Apply does **not** mean blindly copy the entire skill. If the skill covers 80% o
 **Dedup check** — before downloading or creating, check for existing local skills:
 
 ```bash
-ls ~/.openclaw/workspace/skills/
-grep -rl "<keyword>" ~/.openclaw/workspace/skills/*/SKILL.md 2>/dev/null
+ls "<skills-dir>/"
+grep -rl "<keyword>" "<skills-dir>"/*/SKILL.md 2>/dev/null
 ```
 
 | Found                                 | Action                   |
@@ -154,23 +157,23 @@ Four modes — auto-detected from input:
 ```bash
 # From GitHub repo
 skillnet create --github https://github.com/owner/repo \
-  --output-dir ~/.openclaw/workspace/skills
+  --output-dir "<skills-dir>"
 
 # From document (PDF/PPT/DOCX)
-skillnet create --office report.pdf --output-dir ~/.openclaw/workspace/skills
+skillnet create --office report.pdf --output-dir "<skills-dir>"
 
 # From execution trajectory / log
-skillnet create trajectory.txt --output-dir ~/.openclaw/workspace/skills
+skillnet create trajectory.txt --output-dir "<skills-dir>"
 
 # From natural-language description
 skillnet create --prompt "A skill for managing Docker Compose" \
-  --output-dir ~/.openclaw/workspace/skills
+  --output-dir "<skills-dir>"
 ```
 
 **Always evaluate after creating:**
 
 ```bash
-skillnet evaluate ~/.openclaw/workspace/skills/<new-skill>
+skillnet evaluate "<skills-dir>/<new-skill>"
 ```
 
 **Trigger → mode mapping:**
@@ -187,7 +190,7 @@ skillnet evaluate ~/.openclaw/workspace/skills/<new-skill>
 Requires `API_KEY`. Scores five dimensions (Good / Average / Poor): **Safety**, **Completeness**, **Executability**, **Maintainability**, **Cost-Awareness**.
 
 ```bash
-skillnet evaluate ~/.openclaw/workspace/skills/my-skill
+skillnet evaluate "<skills-dir>/my-skill"
 skillnet evaluate "https://github.com/owner/repo/tree/main/skills/foo"
 ```
 
@@ -198,7 +201,7 @@ skillnet evaluate "https://github.com/owner/repo/tree/main/skills/foo"
 Requires `API_KEY`. Detects: `similar_to`, `belong_to`, `compose_with`, `depend_on`.
 
 ```bash
-skillnet analyze ~/.openclaw/workspace/skills
+skillnet analyze "<skills-dir>"
 # → outputs relationships.json in the same directory
 ```
 
@@ -206,7 +209,7 @@ When skill count exceeds ~30, or when user asks to organize:
 
 ```bash
 # Generate full relationship report
-skillnet analyze ~/.openclaw/workspace/skills
+skillnet analyze "<skills-dir>"
 
 # Review relationships.json:
 #   similar_to pairs → compare & prune duplicates
@@ -214,11 +217,11 @@ skillnet analyze ~/.openclaw/workspace/skills
 #   belong_to → consider organizing into subdirectories
 
 # Evaluate and compare competing skills
-skillnet evaluate ~/.openclaw/workspace/skills/skill-a
-skillnet evaluate ~/.openclaw/workspace/skills/skill-b
+skillnet evaluate "<skills-dir>/skill-a"
+skillnet evaluate "<skills-dir>/skill-b"
 ```
 
-`skillnet analyze` only generates a report — it never modifies or deletes skills. Any cleanup actions (removing duplicates, pruning low-quality skills) require user confirmation before executing. Use safe removal (e.g., `mv <skill> ~/.openclaw/trash/`) rather than permanent deletion.
+`skillnet analyze` only generates a report — it never modifies or deletes skills. Any cleanup actions (removing duplicates, pruning low-quality skills) require user confirmation before executing. Use safe removal (e.g., `mkdir -p "<skills-dir>/.trash" && mv "<skills-dir>/<skill>" "<skills-dir>/.trash/"`) rather than permanent deletion.
 
 ---
 
@@ -229,9 +232,9 @@ During execution, if any of these occur, suggest the action to the user and proc
 | Trigger                                     | Action                                                                                                                   |
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------ |
 | Encounter unfamiliar tool/framework/library | `skillnet search "<name>"` → suggest downloading to the user → on approval, read SKILL.md → extract useful parts         |
-| User provides a GitHub URL                  | Confirm with user → `skillnet create --github <url> -d ~/.openclaw/workspace/skills` → evaluate → read SKILL.md → apply  |
-| User shares a PDF/DOCX/PPT                  | Confirm with user → `skillnet create --office <file> -d ~/.openclaw/workspace/skills` → evaluate → read SKILL.md → apply |
-| User provides execution logs or data        | Confirm with user → `skillnet create <file> -d ~/.openclaw/workspace/skills` → evaluate → read SKILL.md → apply          |
+| User provides a GitHub URL                  | Confirm with user → `skillnet create --github <url> -d "<skills-dir>"` → evaluate → read SKILL.md → apply  |
+| User shares a PDF/DOCX/PPT                  | Confirm with user → `skillnet create --office <file> -d "<skills-dir>"` → evaluate → read SKILL.md → apply |
+| User provides execution logs or data        | Confirm with user → `skillnet create <file> -d "<skills-dir>"` → evaluate → read SKILL.md → apply          |
 | Task hits a wall, no idea how to proceed    | `skillnet search "<problem>" --mode vector` → check results → suggest downloading relevant skills to the user            |
 
 **Pragmatic note**: In-task triggers should not interrupt flow. If you're in the middle of producing output, finish the current step first, then suggest the search/create action. Always confirm with the user before downloading or executing any third-party code, even during in-task triggers. If the task is time-sensitive and you already have a working approach, a search can run in parallel or be deferred to post-task.
@@ -248,7 +251,7 @@ During execution, if any of these occur, suggest the action to the user and proc
 | `SKILLNET_MODEL` | default LLM model for all commands     | `gpt-4o`                    |
 | `GITHUB_MIRROR`  | faster downloads in restricted networks | —                          |
 
-**No credentials needed for install, search, or download (public repos).** For credential setup, ask templates, and OpenClaw config, see `references/api-reference.md` → "Credential Strategy".
+**No credentials needed for install, search, or download (public repos).** For credential setup, ask templates, and host-agent configuration, see `references/api-reference.md` → "Credential Strategy".
 
 ---
 
@@ -258,7 +261,7 @@ During execution, if any of these occur, suggest the action to the user and proc
 | -------------------------------------------------- | ----------------------------------------------------- |
 | CLI flags, REST API, Python SDK methods            | `references/api-reference.md`                         |
 | Scenario recipes (7 patterns + decision matrix)    | `references/workflow-patterns.md`                     |
-| Credential setup, ask templates, OpenClaw config   | `references/api-reference.md` → "Credential Strategy" |
+| Credential setup, ask templates, host-agent config | `references/api-reference.md` → "Credential Strategy" |
 | Data flow, third-party safety, confirmation policy | `references/security-privacy.md`                      |
 | Create + auto-evaluate (combo shortcut)            | `scripts/skillnet_create.py`                          |
 | Validate skill structure (offline, no API_KEY)     | `scripts/skillnet_validate.py`                        |

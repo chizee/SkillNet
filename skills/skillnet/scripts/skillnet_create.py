@@ -15,7 +15,7 @@ import argparse
 import os
 import sys
 
-DEFAULT_OUTPUT = os.path.expanduser("~/.openclaw/workspace/skills")
+DEFAULT_OUTPUT = os.path.expanduser(os.getenv("SKILLNET_SKILLS_DIR", "./generated_skills"))
 DEFAULT_MODEL = os.getenv("SKILLNET_MODEL", "gpt-4o")
 EVAL_DIMENSIONS = ["safety", "completeness", "executability", "maintainability", "cost_awareness"]
 
