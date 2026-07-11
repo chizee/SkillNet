@@ -1,0 +1,6 @@
+version: "1"
+rules:
+  - base: main
+    upstream: zjunlp:main
+    mergeMethod: hardreset
+    mergeUnstable: true
