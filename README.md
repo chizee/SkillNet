@@ -73,6 +73,16 @@ No API key is required for search or public GitHub downloads.
 
 ---
 
+## News
+
+- **[2026-07-11] SkillNet update.** The library now indexes 500K+ GitHub skills with improved deduplication, expands scientific-research and data-analysis skill coverage, and adds local scenario graphs plus orchestration.
+- **[2026-03-26] JiuwenClaw integration released.** JiuwenClaw now includes SkillNet as a built-in skill marketplace. [View guide](./examples/JiuwenClaw/README.md)
+- **[2026-03-12] SkillNet MCP server released.** MCP support is maintained by [CycleChain](https://github.com/CycleChain).
+- **[2026-03-04] Technical report released.** Read the SkillNet report on [arXiv](https://arxiv.org/abs/2603.04448).
+- **[2026-02-23] OpenClaw integration released.** SkillNet is available as a built-in skill for [OpenClaw](https://github.com/openclaw/openclaw).
+
+---
+
 ## What You Can Build
 
 | Layer | Capability | What it enables |
@@ -81,7 +91,7 @@ No API key is required for search or public GitHub downloads.
 | Skill authoring | Create | Turn traces, prompts, repositories, and documents into portable skill packages |
 | Skill quality | Evaluate | Compare skill readiness before putting it in an agent workflow |
 | Skill graph | Analyze | Discover `compose_with`, `depend_on`, and scenario-level handoff relationships |
-| Scene orchestration | Orchestrate | Pick skills for a task in a curated scene and return an execution-ready prompt |
+| Orchestration | Orchestrate | Pick skills for a task in a curated scene and return an execution-ready prompt |
 | Integrations | Agent skills, MCP, OpenClaw, JiuwenClaw | Use SkillNet inside existing agent runtimes |
 
 ---
