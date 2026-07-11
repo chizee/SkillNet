@@ -1,22 +1,55 @@
 import typer
 import os
+import json
+from enum import Enum
 from pathlib import Path
+from typing import Any, Optional
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.columns import Columns
+from skillnet_ai.client import DEFAULT_BASE_URL, DEFAULT_MODEL, SkillNetClient
+from skillnet_ai.orchestrator import DEFAULT_ORCHESTRATION_TIMEOUT
 from skillnet_ai.creator import SkillCreator
 from skillnet_ai.downloader import SkillDownloader, GitHubAPIError
 from skillnet_ai.evaluator import SkillEvaluator, EvaluatorConfig
 from skillnet_ai.searcher import SkillNetSearcher
-from skillnet_ai.analyzer import SkillRelationshipAnalyzer
+from skillnet_ai.analyzer import ScenarioSkillGraphAnalyzer, SkillRelationshipAnalyzer
 
 app = typer.Typer(help="SkillNet AI CLI Tool")
 console = Console()
 
 API_KEY = os.getenv("API_KEY")
-BASE_URL = os.getenv("BASE_URL") or "https://api.openai.com/v1"
-DEFAULT_MODEL = os.getenv("SKILLNET_MODEL", "gpt-4o")
+BASE_URL = os.getenv("BASE_URL") or DEFAULT_BASE_URL
+
+
+class AnalyzeMode(str, Enum):
+    basic = "basic"
+    scenario = "scenario"
+
+
+def _model_dump(model: Any) -> dict:
+    if hasattr(model, "model_dump"):
+        return _json_safe(model.model_dump())
+    if hasattr(model, "dict"):
+        return _json_safe(model.dict())
+    return _json_safe(dict(getattr(model, "__dict__", {})))
+
+
+def _json_safe(value: Any) -> Any:
+    if isinstance(value, list):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, tuple):
+        return [_json_safe(item) for item in value]
+    if isinstance(value, dict):
+        return {str(key): _json_safe(item) for key, item in value.items()}
+    if hasattr(value, "model_dump"):
+        return _json_safe(value.model_dump())
+    if hasattr(value, "dict"):
+        return _json_safe(value.dict())
+    if hasattr(value, "__dict__") and not isinstance(value, type):
+        return _json_safe(dict(value.__dict__))
+    return value
 
 @app.command()
 def search(
@@ -115,6 +148,46 @@ def search(
         console.print(f"[bold red]Error during search:[/bold red] {str(e)}")
         # Optional: Print full traceback for debugging
         # console.print_exception() 
+        raise typer.Exit(code=1)
+
+
+@app.command()
+def orchestrate(
+    q: str = typer.Argument(..., help="The user task query to orchestrate."),
+    scene: str = typer.Option("sciatlas", "--scene", help="Preset scene name."),
+    model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="Claude Agent SDK model to use."),
+    timeout: float = typer.Option(DEFAULT_ORCHESTRATION_TIMEOUT, "--timeout", help="Per-stage orchestration timeout in seconds."),
+    json_output: bool = typer.Option(False, "--json/--no-json", help="Print raw JSON instead of a Rich summary."),
+):
+    """
+    Recommend scene skills and generate a downstream execution prompt.
+    """
+    if not API_KEY:
+        console.print("[bold red]Error:[/bold red] API_KEY environment variable is not set.")
+        raise typer.Exit(code=1)
+
+    try:
+        client = SkillNetClient(api_key=API_KEY, base_url=BASE_URL)
+        with console.status("[bold green]Orchestrating scene skills...[/bold green]", spinner="dots"):
+            result = client.orchestrate(q, scene=scene, model=model, timeout=timeout)
+
+        payload = _model_dump(result)
+        if json_output:
+            console.print(json.dumps(payload, ensure_ascii=False, indent=2))
+            return
+
+        if payload.get("package_url"):
+            console.print(f"\n[bold cyan]Skill Collection:[/bold cyan] {payload['package_url']}")
+
+        table = Table(title=f"Selected Skills: {scene}", show_lines=True)
+        table.add_column("Skill", style="cyan", no_wrap=True)
+        for skill in payload.get("skills", []):
+            table.add_row(skill.get("name") or skill.get("skill_id", ""))
+        console.print(table)
+
+        console.print(Panel(payload.get("prompt", ""), title="Agent Prompt", border_style="cyan"))
+    except Exception as e:
+        console.print(f"[bold red]Orchestration Failed:[/bold red] {str(e)}")
         raise typer.Exit(code=1)
 
 @app.command()
@@ -515,21 +588,111 @@ def _display_evaluation_report(target_name: str, data: dict):
 @app.command()
 def analyze(
     skills_dir: Path = typer.Argument(..., exists=True, file_okay=False, help="Directory containing multiple skill folders to analyze."),
-    save: bool = typer.Option(True, "--save/--no-save", help="Save the result to relationships.json in the directory."),
+    save: bool = typer.Option(True, "--save/--no-save", help="Save analysis artifacts."),
     model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="LLM model to use."),
+    mode: AnalyzeMode = typer.Option(AnalyzeMode.basic, "--mode", help="Analyze mode."),
+    embedding_api_key: Optional[str] = typer.Option(None, "--embedding-api-key", envvar="EMBEDDING_API_KEY", help="Embedding API key for scenario mode."),
+    embedding_base_url: Optional[str] = typer.Option(None, "--embedding-base-url", envvar="EMBEDDING_BASE_URL", help="OpenAI-compatible embedding API base URL for scenario mode."),
+    embedding_model: Optional[str] = typer.Option(None, "--embedding-model", envvar="EMBEDDING_MODEL", help="Embedding model name for scenario mode."),
+    max_workers: int = typer.Option(4, "--max-workers", help="Scenario LLM extraction, verification, and redundancy-review concurrency."),
+    output_dir: Optional[Path] = typer.Option(None, "--output-dir", help="Scenario artifact directory. Defaults to SKILLS_DIR/skillnet_graph."),
+    top_k: int = typer.Option(30, "--top-k", help="Top pre-scenarios retrieved per post-scenario in scenario mode."),
+    force: bool = typer.Option(False, "--force/--no-force", help="Recompute scenario artifacts instead of resuming successful rows."),
+    timeout: float = typer.Option(120.0, "--timeout", help="Scenario LLM and embedding request timeout in seconds."),
 ):
     """
-    Analyze and map relationships (similar_to, belong_to, compose_with, depend_on) between local skills.
+    Analyze and map relationships between local skills.
     
-    This command scans all subdirectories in the target folder, reads their descriptions, 
-    and uses AI to build a knowledge graph of how the skills relate to each other.
+    basic mode scans skill descriptions and asks the LLM for relationships.
+    scenario mode builds a scenario-level workflow graph for local skills.
     """
     # 1. Validate Environment
     if not API_KEY:
         console.print("[bold red]Error:[/bold red] API_KEY environment variable is not set.")
         raise typer.Exit(code=1)
+    mode_value = mode.value if isinstance(mode, AnalyzeMode) else str(mode)
+    if mode_value not in {"basic", "scenario"}:
+        console.print("[bold red]Error:[/bold red] --mode must be either 'basic' or 'scenario'.")
+        raise typer.Exit(code=1)
 
     try:
+        console.print(f"[dim]Scanning directory: {os.path.abspath(skills_dir)}[/dim]")
+
+        if mode_value == "scenario":
+            analyzer = ScenarioSkillGraphAnalyzer(
+                api_key=API_KEY,
+                base_url=BASE_URL,
+                model=model,
+                embedding_api_key=embedding_api_key,
+                embedding_base_url=embedding_base_url,
+                embedding_model=embedding_model,
+                max_workers=max_workers,
+                top_k=top_k,
+                timeout=timeout,
+                progress_callback=lambda message: console.print(f"[dim]{message}[/dim]"),
+            )
+
+            result = analyzer.analyze_local_skills(
+                skills_dir=str(skills_dir),
+                output_dir=output_dir,
+                force=force,
+                save_to_file=save,
+            )
+
+            graph = result.get("scenario_skill_graph", {})
+            meta = graph.get("meta", {})
+            result_meta = result.get("meta", {})
+            relationships = result.get("relationships", [])
+            console.print(
+                "\n[bold green]Scenario Analysis Complete![/bold green] "
+                f"Nodes: {meta.get('node_count', 0)}, "
+                f"Edges: {meta.get('edge_count', 0)}, "
+                f"Relationships: {len(relationships)}"
+            )
+            extraction_failed_count = int(result_meta.get("extraction_failed_count") or 0)
+            alignment_failed_count = int(result_meta.get("alignment_failed_count") or 0)
+            redundancy_failed_count = int(
+                result.get("skill_edge_redundancy_reviews", {})
+                .get("meta", {})
+                .get("failed_pair_count")
+                or 0
+            )
+            if extraction_failed_count:
+                console.print(
+                    f"[yellow]Warning:[/yellow] Scenario extraction failed for "
+                    f"{extraction_failed_count} skill(s). See skill_scenarios.json for details."
+                )
+            if alignment_failed_count:
+                console.print(
+                    f"[yellow]Warning:[/yellow] Scenario verification failed for "
+                    f"{alignment_failed_count} candidate alignment(s). See scenario_alignment.json for details."
+                )
+            if redundancy_failed_count:
+                console.print(
+                    f"[yellow]Warning:[/yellow] Skill edge redundancy review failed for "
+                    f"{redundancy_failed_count} skill pair(s). See skill_edge_redundancy_reviews.json for details."
+                )
+            if relationships:
+                table = Table(show_header=True, header_style="bold magenta", title="Scenario Skill Graph")
+                table.add_column("Source Skill", style="cyan", no_wrap=True)
+                table.add_column("Relationship", style="bold white", justify="center")
+                table.add_column("Target Skill", style="cyan", no_wrap=True)
+                table.add_column("Reasoning", style="dim")
+                for edge in relationships:
+                    table.add_row(
+                        edge.get("source", "Unknown"),
+                        "[green]COMPOSE WITH[/green]",
+                        edge.get("target", "Unknown"),
+                        edge.get("reason", ""),
+                    )
+                console.print(table)
+            else:
+                console.print("\n[yellow]No scenario handoff relationships detected among the skills found.[/yellow]")
+            if save:
+                saved_dir = result.get("meta", {}).get("output_dir") or str(output_dir or (skills_dir / "skillnet_graph"))
+                console.print(f"\n[dim]Scenario graph artifacts saved to: {saved_dir}[/dim]")
+            return
+
         # 2. Initialize Analyzer
         analyzer = SkillRelationshipAnalyzer(
             api_key=API_KEY,
@@ -538,8 +701,6 @@ def analyze(
         )
 
         # 3. Visual Feedback & Execution
-        console.print(f"[dim]Scanning directory: {os.path.abspath(skills_dir)}[/dim]")
-        
         results = []
         with console.status("[bold green]Reading skills and analyzing relationships...[/bold green]", spinner="earth"):
             results = analyzer.analyze_local_skills(

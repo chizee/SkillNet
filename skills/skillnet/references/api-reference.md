@@ -163,6 +163,25 @@ Output: `relationships.json` with edges:
 
 Relationship types: `similar_to`, `belong_to`, `compose_with`, `depend_on`.
 
+### `skillnet orchestrate`
+
+Requires `pip install "skillnet-ai[orchestrate]"` and a Claude Agent SDK-compatible `BASE_URL`.
+
+```
+skillnet orchestrate QUERY [OPTIONS]
+
+Arguments:
+  QUERY                         User task query (required)
+
+Options:
+  --scene TEXT                  Preset scene  [default: sciatlas]
+  -m, --model TEXT              Claude Agent SDK model
+  --timeout FLOAT               Per-stage timeout in seconds  [default: 240]
+  --json / --no-json            Machine-readable JSON output
+```
+
+Output: skill collection URL, selected skills (`skill_id`, `name`), and a downstream execution-agent prompt.
+
 ---
 
 ## Python SDK
@@ -171,7 +190,7 @@ Relationship types: `similar_to`, `belong_to`, `compose_with`, `depend_on`.
 from skillnet_ai import SkillNetClient
 
 client = SkillNetClient(
-    api_key="sk-...",          # env: API_KEY (required for create/evaluate/analyze)
+    api_key="sk-...",          # env: API_KEY (required for create/evaluate/analyze/orchestrate)
     base_url="https://...",    # env: BASE_URL (optional)
     github_token="ghp_..."    # env: GITHUB_TOKEN (optional)
 )
@@ -207,14 +226,18 @@ Returns `Dict[str, Any]` — evaluation report with five dimension keys.
 
 Returns `List[Dict[str, Any]]` — relationship edges.
 
+### `client.orchestrate(query, scene, model, timeout)`
+
+Returns `OrchestrateResult` with `.package_url`, `.skills`, and `.prompt`. The first release supports `scene="sciatlas"`; `BASE_URL` must be compatible with Claude Agent SDK.
+
 ---
 
 ## Environment Variables
 
 | Variable         | Purpose                                  | Required                      |
 | ---------------- | ---------------------------------------- | ----------------------------- |
-| `API_KEY`        | LLM API key (OpenAI-compatible)          | For create, evaluate, analyze |
-| `BASE_URL`       | Custom LLM endpoint                      | No (defaults to OpenAI)       |
+| `API_KEY`        | LLM API key                              | For create, evaluate, analyze, orchestrate |
+| `BASE_URL`       | Custom LLM endpoint; orchestration requires a Claude Agent SDK-compatible gateway | No (defaults to OpenAI) |
 | `GITHUB_TOKEN`   | GitHub PAT for private repos             | No                            |
 | `SKILLNET_MODEL` | Default LLM model for all commands       | No (defaults to `gpt-4o`)     |
 | `GITHUB_MIRROR`  | Mirror URL for faster downloads          | No                            |
@@ -256,14 +279,15 @@ export GITHUB_TOKEN="<value>"  # only if needed
 | `skillnet create`   | **Required** | Optional   | `--github` private repos only | Optional          | —               |
 | `skillnet evaluate` | **Required** | Optional   | —                             | Optional          | —               |
 | `skillnet analyze`  | **Required** | Optional   | —                             | Optional          | —               |
+| `skillnet orchestrate` | **Required** | **Compatible gateway required** | —                  | Optional          | —               |
 
 **No env vars are required for install, search, or download (public repos).**
 
 ### Standard Ask Templates
 
-**API_KEY** — triggered before `create`/`evaluate`/`analyze` when not configured:
+**API_KEY** — triggered before `create`/`evaluate`/`analyze`/`orchestrate` when not configured:
 
-> I need an OpenAI-compatible API_KEY (used only for create/evaluate/analyze in this run). Optionally provide BASE_URL and model name (default gpt-4o). May I proceed with your key?
+> I need the API_KEY for this LLM-powered SkillNet command. For orchestration, BASE_URL must be compatible with Claude Agent SDK. May I proceed with your key and configured endpoint?
 
 **GITHUB_TOKEN** — triggered only on private repo access or rate-limit (403):
 

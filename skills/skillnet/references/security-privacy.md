@@ -11,9 +11,9 @@
 | ------------------------ | ------------------------- | -------------------------------------------------- |
 | `api-skillnet.openkg.cn` | search, download          | Query string only (read-only, no auth)             |
 | `api.github.com`         | download, create --github | GITHUB_TOKEN for auth; fetches repo metadata/files |
-| Your `BASE_URL`          | create, evaluate, analyze | Skill content for LLM processing                   |
+| Your `BASE_URL`          | create, evaluate, analyze, orchestrate | Skill content or scene context for LLM processing |
 
-**Local/air-gapped friendly**: Point `BASE_URL` to a local endpoint (e.g., `http://127.0.0.1:8000/v1` for vLLM, LM Studio, Ollama).
+**Local/air-gapped friendly**: Create, evaluate, and analyze can use a local OpenAI-compatible endpoint (for example vLLM, LM Studio, or Ollama). Orchestration requires a local gateway compatible with Claude Agent SDK.
 
 ## Data Sent to LLM Endpoint per Command
 
@@ -25,6 +25,7 @@
 | `create --prompt`     | Only the user-provided description                                                                     | Typically <1K chars                                             |
 | `evaluate`            | SKILL.md content + script snippets + reference snippets                                                | SKILL.md ≤12K chars, ≤5 scripts × 1.2K each, ≤10 refs × 4K each |
 | `analyze`             | Only skill names and short descriptions (metadata only)                                                | Metadata only                                                   |
+| `orchestrate`         | User query, model-requested scene Wiki excerpts, and selected-skill context                             | SDK read/tool budgets; planner card excerpts ≤8K chars per skill |
 
 ## Output & Side Effects
 
@@ -32,6 +33,7 @@
 - **No system modifications**: Installation uses standard Python package managers (`pipx` or `pip`).
 - **Local output only**: Created skills are written to the specified output directory and nowhere else.
 - `skillnet analyze` only generates a report — never modifies or deletes skills.
+- `skillnet orchestrate` reads the bundled scene Wiki and returns a prompt — it does not execute the user task.
 
 ## Sensitive Data Protection
 
@@ -62,6 +64,7 @@ Downloaded skills are **third-party content** and must be treated with appropria
 | `skillnet create`                             | **Yes**                | Inform: data size, endpoint, content type before proceeding.                                          |
 | `skillnet evaluate`                           | **Yes**                | Inform: ≤12K SKILL.md + snippets will be sent to the LLM endpoint.                                    |
 | `skillnet analyze`                            | **Yes**                | Sends only skill names and descriptions (metadata) to the LLM endpoint.                               |
+| `skillnet orchestrate`                        | **Yes**                | Sends the query and relevant bundled scene context to the configured LLM endpoint.                    |
 | Credential usage                              | **Transparent**        | Always inform the user which credentials and endpoints are being used, even when pre-configured.      |
 
-**Never** execute download, create, evaluate, analyze, or run third-party scripts without explicit user approval. Search is the only fully autonomous operation.
+**Never** execute download, create, evaluate, analyze, orchestrate, or run third-party scripts without explicit user approval. Search is the only fully autonomous operation.

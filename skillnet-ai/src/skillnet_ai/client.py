@@ -1,14 +1,17 @@
 import os
-from typing import List, Optional, Dict, Any, Union
+from typing import List, Optional, Dict, Any, Union, Literal
 from pathlib import Path
 
 from skillnet_ai.creator import SkillCreator
 from skillnet_ai.downloader import SkillDownloader, GitHubAPIError
 from skillnet_ai.evaluator import SkillEvaluator, EvaluatorConfig
 from skillnet_ai.searcher import SkillNetSearcher
-from skillnet_ai.analyzer import SkillRelationshipAnalyzer
+from skillnet_ai.analyzer import ScenarioSkillGraphAnalyzer, SkillRelationshipAnalyzer
+from skillnet_ai.orchestrator import DEFAULT_ORCHESTRATION_TIMEOUT, SkillOrchestrator
+from skillnet_ai.models import OrchestrateResult
 
 DEFAULT_MODEL = os.getenv("SKILLNET_MODEL", "gpt-4o")
+DEFAULT_BASE_URL = "https://api.openai.com/v1"
 
 class SkillNetError(Exception):
     """Custom exception class for SkillNet Client errors."""
@@ -37,7 +40,7 @@ class SkillNetClient:
                           Defaults to env var GITHUB_TOKEN.
         """
         self.api_key = api_key or os.getenv("API_KEY")
-        self.base_url = base_url or os.getenv("BASE_URL")
+        self.base_url = base_url or os.getenv("BASE_URL") or DEFAULT_BASE_URL
         self.github_token = github_token or os.getenv("GITHUB_TOKEN")
 
 
@@ -303,36 +306,114 @@ class SkillNetClient:
         self,
         skills_dir: Union[str, Path],
         save_to_file: bool = True,
-        model: str = DEFAULT_MODEL
-    ) -> List[Dict[str, Any]]:
+        model: str = DEFAULT_MODEL,
+        mode: Literal["basic", "scenario"] = "basic",
+        max_workers: int = 4,
+        output_dir: Union[str, Path, None] = None,
+        embedding_api_key: Optional[str] = None,
+        embedding_base_url: Optional[str] = None,
+        embedding_model: Optional[str] = None,
+        top_k: int = 30,
+        force: bool = False,
+        timeout: float = 120.0,
+    ) -> Union[List[Dict[str, Any]], Dict[str, Any]]:
         """
         Analyze a local directory containing multiple skills to infer relationships between them.
         
-        This builds a knowledge graph (edges) between skills based on their names and descriptions.
-        Relationships detected: similar_to, belong_to, compose_with, depend_on.
+        Basic mode builds relationships from skill names and descriptions.
+        Scenario mode builds a scenario-level workflow graph.
 
         Args:
             skills_dir: Path to the directory containing skill folders.
-            save_to_file: If True, saves a 'relationships.json' file in the skills_dir.
+            save_to_file: If True, saves analysis artifacts.
             model: The LLM model to use for analysis.
+            mode: "basic" for existing lightweight analysis, "scenario" for graph analysis.
+            max_workers: Scenario LLM extraction, verification, and redundancy-review concurrency.
+            output_dir: Scenario artifact directory. Defaults to skills_dir/skillnet_graph.
+            embedding_api_key: Embedding API key for scenario mode.
+            embedding_base_url: OpenAI-compatible embedding API base URL for scenario mode.
+            embedding_model: Embedding model name for scenario mode.
+            top_k: Top pre-scenarios retrieved per post-scenario in scenario mode.
+            force: Recompute scenario artifacts instead of resuming successful rows.
+            timeout: Scenario LLM and embedding request timeout in seconds.
 
         Returns:
-            List[Dict[str, Any]]: A list of relationship edges (source, target, type, reason).
+            Basic mode returns a list of relationship edges. Scenario mode returns a graph result dict.
         """
         if not self.api_key:
             raise SkillNetError("API_KEY is required for relationship analysis.")
+        if mode not in {"basic", "scenario"}:
+            raise SkillNetError("Invalid analyze mode. Must be one of: basic, scenario.")
 
         try:
-            analyzer = SkillRelationshipAnalyzer(
+            if mode == "basic":
+                analyzer = SkillRelationshipAnalyzer(
+                    api_key=self.api_key,
+                    base_url=self.base_url,
+                    model=model
+                )
+
+                results = analyzer.analyze_local_skills(
+                    skills_dir=str(skills_dir),
+                    save_to_file=save_to_file
+                )
+                return results
+
+            analyzer = ScenarioSkillGraphAnalyzer(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                model=model
+                model=model,
+                embedding_api_key=embedding_api_key,
+                embedding_base_url=embedding_base_url,
+                embedding_model=embedding_model,
+                max_workers=max_workers,
+                top_k=top_k,
+                timeout=timeout,
             )
-            
             results = analyzer.analyze_local_skills(
                 skills_dir=str(skills_dir),
-                save_to_file=save_to_file
+                output_dir=output_dir,
+                force=force,
+                save_to_file=save_to_file,
             )
             return results
         except Exception as e:
             raise SkillNetError(f"Relationship analysis failed: {str(e)}") from e
+
+    def orchestrate(
+        self,
+        query: str,
+        scene: str = "sciatlas",
+        model: str = DEFAULT_MODEL,
+        timeout: float = DEFAULT_ORCHESTRATION_TIMEOUT,
+    ) -> OrchestrateResult:
+        """
+        Build a scene-specific skill handoff and downstream execution prompt.
+
+        Args:
+            query: User task query.
+            scene: Preset scene name. Currently only "sciatlas" is supported.
+            model: Claude Agent SDK model name.
+            timeout: Per-stage Claude Agent SDK timeout in seconds.
+
+        Returns:
+            OrchestrateResult: scene package URL, selected skills, and a prompt for the local execution agent.
+        """
+        if not self.api_key:
+            raise SkillNetError("API_KEY is required for orchestration.")
+
+        try:
+            orchestrator = SkillOrchestrator(
+                api_key=self.api_key,
+                base_url=self.base_url,
+                model=model,
+                execution_timeout_seconds=timeout,
+            )
+            return orchestrator.orchestrate(
+                query,
+                scene=scene,
+            )
+        except SkillNetError:
+            raise
+        except Exception as e:
+            raise SkillNetError(f"Orchestration failed: {str(e)}") from e

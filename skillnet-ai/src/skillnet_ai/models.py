@@ -1,5 +1,6 @@
-from typing import Optional, List, Literal, Dict, Any
+from typing import Optional, List, Dict, Any
 from pydantic import BaseModel, Field
+
 
 class SkillModel(BaseModel):
     """Represents a Skill object returned from the search API."""
@@ -40,3 +41,16 @@ class SearchResponse(BaseModel):
     data: List[SkillModel]
     meta: MetaModel
     success: bool
+
+
+class OrchestratedSkill(BaseModel):
+    """A skill selected for a scene orchestration prompt."""
+    skill_id: str
+    name: str = ""
+
+
+class OrchestrateResult(BaseModel):
+    """Minimal scene orchestration handoff for downstream local agents."""
+    prompt: str
+    skills: List[OrchestratedSkill] = Field(default_factory=list)
+    package_url: Optional[str] = None

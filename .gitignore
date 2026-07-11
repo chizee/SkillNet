@@ -1,5 +1,7 @@
 /scripts/
 __pycache__/
+*.py[cod]
+*.egg-info/
 skill_downloads/
 download_skill*
 .DS_Store
