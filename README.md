@@ -379,6 +379,12 @@ curl "http://api-skillnet.openkg.cn/v1/search?q=reading%20charts&mode=vector&thr
 
 SkillNet is packaged as a portable agent skill at [`skills/skillnet/`](https://github.com/zjunlp/SkillNet/tree/main/skills/skillnet). Install it into an agent runtime and the agent can search, download, create, evaluate, and analyze skills during coding or research tasks.
 
+<div align="center">
+
+https://github.com/user-attachments/assets/ae6020d9-6846-4672-84ce-fa9c8057e92b
+
+</div>
+
 ### Claude Code
 
 ```bash
@@ -434,13 +440,30 @@ docker pull fmdogancan/skillnet-mcp:latest
 
 SkillNet integrates with [OpenClaw](https://github.com/openclaw/openclaw) and [JiuwenClaw](https://github.com/openJiuwen-ai/jiuwenclaw) as a built-in skill marketplace. See the [JiuwenClaw guide](./examples/JiuwenClaw/README.md).
 
+The demo below shows SkillNet running inside OpenClaw to discover and use reusable skills.
+
+<div align="center">
+
+https://github.com/user-attachments/assets/9d49a00c-827d-47a4-8954-0e6b977ca547
+
+</div>
+
 ---
 
 ## Examples and Experiments
 
+### Scientific discovery
+
+SkillNet can help an agent plan and execute a multi-step scientific workflow, from scRNA-seq analysis to cancer target validation.
+
+![Scientific discovery demo](https://github.com/user-attachments/assets/5b65865a-312a-4dd7-ae80-ee1f968e2702)
+
+[Open the scientific workflow notebook](./examples/scientific_workflow_demo.ipynb).
+
+### More examples and benchmarks
+
 - [`examples/`](./examples): SDK demos and notebook workflows.
 - [`experiments/`](./experiments): reproduction scripts for ALFWorld, WebShop, and ScienceWorld.
-- [Scientific workflow demo](./examples/scientific_workflow_demo.ipynb): using skills in a multi-step scientific discovery workflow.
 
 ```bash
 cd experiments
