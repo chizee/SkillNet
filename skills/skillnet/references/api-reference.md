@@ -52,6 +52,13 @@ Each evaluation dimension (`safety`, `completeness`, `executability`,
 `overall_score` or `summary` field. Evaluation samples content; inspect any
 injection scan's `complete` and `scan_issues` fields for coverage limitations.
 
+The shared SDK reads up to 12,000 characters of SKILL.md, up to 5 scripts with
+12,000 characters per file, and up to 10 reference files with 4,000 characters
+per file. The script portion is therefore bounded at 60,000 characters. These
+are character limits, not token limits. Small scripts are read in full; exceeding
+either a file-count or character limit is reported as incomplete coverage.
+The CLI and this skill use these same SDK defaults.
+
 ## Provider compatibility
 
 `BASE_URL` points to a Chat Completions-compatible base, not the search API or an

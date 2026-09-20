@@ -430,6 +430,15 @@ parameter while retaining JSON parsing and five-dimension schema validation.
 rejects it; an unsupported temperature can also be removed once. Provider, model
 and account failures never cause an automatic provider switch.
 
+Evaluation reads at most 5 script files, with **12,000 characters per script**
+(increased from 1,200 so ordinary utility scripts can be read completely). The
+script portion is bounded at 60,000 characters; SKILL.md remains capped at 12,000
+and references at 10 files × 4,000 characters. These shared defaults apply to the
+SDK, CLI and agent skill. Truncation or omitted files are reported in
+`prompt_injection_scan.scan_issues` with `complete: false`. Larger inputs can cost
+more tokens; direct `SkillLoader.load_scripts(..., max_chars=...)` callers can
+retain a smaller explicit budget.
+
 ## Configuration
 
 | Variable | Required for | Default |

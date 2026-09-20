@@ -9,18 +9,44 @@ Claude Code, dsh and WorkBuddy on native Windows and macOS.
 | Check | Status and evidence |
 |---|---|
 | Local baseline | 119 tests passed on Linux/Python 3.10; public commit `5c472b36d2a435001fdae3bc8439886d8050645a` plus the existing local creator-path fix/tests |
-| Candidate automated suite | 192 tests passed on Linux/Python 3.10 using `python -m pytest skillnet-ai/tests -q`; covers SDK/CLI, config reuse, parameter compatibility, download recovery, wrappers and packaging |
+| Candidate automated suite | 199 tests passed on Linux/Python 3.10 using `python -m pytest skillnet-ai/tests -q`; covers SDK/CLI, config reuse, parameter compatibility, download recovery, wrappers and packaging |
 | Skill structure | Shared SDK validator and Codex skill-creator validator passed; description fits dsh's 500-character catalog limit |
 | Live public search | `csv`, limit 2: two results with complete URLs; no credentials used |
 | Live public download | Downloaded all 6 files of the baseline `skills/skillnet` from the pinned GitHub commit; SKILL.md bytes match Git content |
 | Windows/macOS SDK checks | CI matrix prepared for Python 3.10/3.12; remote jobs not run in this environment |
-| DeepSeek API / GLM Coding Plan | Pending: corresponding credentials absent; no paid requests made |
-| Four actual agent clients | Pending: current host is Linux; Codex executable exists, other target clients are unavailable; no Windows/macOS client result claimed |
+| Linux Codex CLI | 0.155.0-alpha.9.2, with a temporary minimal configuration and the project's configured `gpt-5.4-mini` compatible endpoint: explicit skill loading, search, one creation with evaluation, and both synthetic CSV execution checks passed; session exited 0 in about 111 seconds |
+| Model API | The project's configured `gpt-5.4-mini` endpoint was used for real creation/evaluation and the budget reassessment below. DeepSeek API / GLM Coding Plan remain pending; those specific provider paths were not tested |
+| Four Windows/macOS clients | Pending: the completed Codex run was on Linux; no native Windows/macOS, Claude Code, dsh or WorkBuddy client result is claimed |
 | Search HTTPS | Prior check found a hostname certificate mismatch; HTTP default works. Infrastructure repair and TLS-valid recheck remain pending |
 
 A release is ready only after automated checks pass and the missing client/API
 rows have actual evidence. Do not turn “format supported” or a mocked HTTP test
 into a claim of successful real-agent operation.
+
+The Codex run used preconfigured model credentials and an explicit `$skillnet`
+request. It does not verify first-time configuration, automatic triggering or
+downloading a search candidate. The initial search timed out through the server's
+local proxy; a second keyword query returned five candidates. The server's default
+Codex MCP configuration and original model stream failed before the successful
+run, so the test used a temporary configuration without changing global settings.
+
+## Script-reading budget follow-up
+
+The shared evaluator now reads 12,000 characters per script, still at most five
+scripts. Regression tests cover a 2,694-character utility, the exact 12,000-character
+boundary, truncation at 12,001, the five-file cap, and an explicit smaller budget.
+They also verify Unicode character counting and injection screening of newly
+included script content while script execution stays disabled.
+
+A real API reassessment used the unchanged 92-line, 2,694-character
+`csv-header-check` produced in a Linux Codex session, with the same configured
+`gpt-5.4-mini` compatible endpoint. The previous 1,200-character budget truncated
+its script and the model rated completeness/executability Average. With the new
+budget, all script content was loaded, scan coverage was complete with no issues,
+and this reassessment returned Good on all five dimensions (about 5.7 seconds).
+This is one observed model result, not a guarantee of scores or task correctness.
+The earlier two CSV execution checks passed independently; reassessment did not
+regenerate the skill or execute its scripts.
 
 ## Local review before commit
 

@@ -715,10 +715,14 @@ class SkillLoader:
     def load_scripts(
         skill_dir: str,
         max_files: int = 5,
-        max_chars: int = 1200,
+        max_chars: int = 12000,
         scan_issues: Optional[List[InjectionScanIssue]] = None,
     ) -> List[Dict[str, str]]:
-        """Load a sample of files under the scripts directory."""
+        """Read up to five scripts, with 12,000 characters per file by default.
+
+        Keep ordinary utility scripts complete while bounding model input.
+        Files beyond either limit remain reported as incomplete scan coverage.
+        """
         return SkillLoader._walk_and_load(
             skill_dir,
             max_files=max_files,
