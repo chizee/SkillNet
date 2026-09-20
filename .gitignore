@@ -5,3 +5,8 @@ __pycache__/
 skill_downloads/
 download_skill*
 .DS_Store
+
+# Python verification and release artifacts
+.pytest_cache/
+build/
+dist/

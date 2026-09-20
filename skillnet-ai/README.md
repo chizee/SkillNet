@@ -323,7 +323,8 @@ skillnet search "visualization" --category "Development" --sort-by stars --limit
 ```bash
 skillnet download https://github.com/anthropics/skills/tree/main/skills/algorithmic-art
 skillnet download <url> -d ./my_agent/skills
-skillnet download <private_url> --token <your_github_token>
+# With GITHUB_TOKEN already configured:
+skillnet download <private_url>
 skillnet download <url> --mirror https://ghfast.top/
 ```
 
@@ -387,6 +388,48 @@ The terminal output includes the collection URL, selected skills, and the downst
 
 ---
 
+## Agent-facing workflow updates (0.1.1 candidate)
+
+The [portable skill](../skills/skillnet/SKILL.md) uses this same CLI/SDK across agents.
+See [Windows/macOS setup](../skills/skillnet/references/setup.md) and
+[validation status](acceptance/README.md). Before publication, install this checkout.
+
+```text
+skillnet configure --interactive
+skillnet doctor --json
+skillnet search "csv" --limit 5 --json
+skillnet create --prompt "Check CSV required columns" --evaluate --json
+skillnet validate ./generated_skills/example --json
+```
+
+`configure` prompts only with `--interactive`; headless callers can use
+`--api-key-env VARIABLE_NAME` or `--api-key-stdin`. Optional user settings live in
+`~/.skillnet/config.json` (override with `SKILLNET_CONFIG`). Resolution is explicit
+arguments → environment → user config → defaults, at runtime. The key is stored
+locally in plaintext with user-file permissions; keep this file out of repositories.
+`doctor` is local by default; `--check-network` and potentially billable `--check-llm`
+are opt-in. No model key is needed for search/public download.
+
+Four commands support `--json`: one `{ok, data, error}` document on stdout, with
+logs on stderr. Creation remains non-evaluating by default; `--evaluate` adds
+structure validation and per-skill model reports. Evaluation failures preserve
+created paths and return a nonzero exit. Poor ratings are valid evaluation results.
+See the [output contract and error recovery](../skills/skillnet/references/api-reference.md).
+
+Downloads now stage complete files before installing. Existing folders require
+`--overwrite` / `client.download(..., overwrite=True)`; failed replacement keeps
+the previous installation. The facade/CLI checks skill structure; the lower-level
+downloader can still retrieve ordinary files. GitHub authentication stays on GitHub
+API requests; configured mirrors are unauthenticated public-file fallbacks only.
+Encoded branch slashes (`feature%2Fcsv`) or commit SHAs disambiguate download URLs.
+
+`SkillNetClient` also accepts keyword-only `model`, `skillnet_api_url`, and
+`json_mode`. `evaluate(..., json_mode="off")` disables the optional JSON-mode API
+parameter while retaining JSON parsing and five-dimension schema validation.
+`auto` retries once without that parameter only when the endpoint explicitly
+rejects it; an unsupported temperature can also be removed once. Provider, model
+and account failures never cause an automatic provider switch.
+
 ## Configuration
 
 | Variable | Required for | Default |
@@ -395,7 +438,10 @@ The terminal output includes the collection URL, selected skills, and the downst
 | `BASE_URL` | Custom LLM endpoint; orchestration requires a Claude Agent SDK-compatible gateway | `https://api.openai.com/v1` |
 | `SKILLNET_MODEL` | Default LLM model | `gpt-4o` |
 | `GITHUB_TOKEN` | Private repos or higher GitHub rate limits | unset |
-| `GITHUB_MIRROR` | GitHub download mirror | unset |
+| `GITHUB_MIRROR` | Public raw-file fallback mirror (disabled with GitHub authentication) | unset |
+| `SKILLNET_API_URL` | Search service base URL | `http://api-skillnet.openkg.cn` |
+| `SKILLNET_JSON_MODE` | Evaluation JSON mode: auto/on/off | `auto` |
+| `SKILLNET_CONFIG` | Optional user config path | `~/.skillnet/config.json` |
 | `EMBEDDING_API_KEY` | `analyze --mode scenario` | unset |
 | `EMBEDDING_BASE_URL` | `analyze --mode scenario` | unset |
 | `EMBEDDING_MODEL` | `analyze --mode scenario` | unset |

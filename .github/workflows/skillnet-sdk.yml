@@ -1,0 +1,29 @@
+name: SkillNet SDK and skill package
+on:
+  push:
+    paths: ['skillnet-ai/**', 'skills/skillnet/**', '.github/workflows/skillnet-sdk.yml']
+  pull_request:
+    paths: ['skillnet-ai/**', 'skills/skillnet/**', '.github/workflows/skillnet-sdk.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+env:
+  PYTHONUTF8: '1'
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        python: ['3.10', '3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m pip install -e ./skillnet-ai pytest build
+      - run: python -m pytest skillnet-ai/tests -q
+      - run: python -m skillnet_ai validate skills/skillnet --strict --json
+      - run: python -m build ./skillnet-ai --outdir dist
+      - run: python skillnet-ai/tools/package_skill.py --output dist/skillnet-0.1.1.zip

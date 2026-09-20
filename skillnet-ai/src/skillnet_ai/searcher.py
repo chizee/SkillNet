@@ -2,6 +2,7 @@ import requests
 import logging
 from typing import Optional, List, Dict, Any, Literal
 from skillnet_ai.models import SearchResponse
+from skillnet_ai.config import resolve_settings
 
 # Configure logger
 logger = logging.getLogger(__name__)
@@ -11,11 +12,11 @@ class SkillNetSearcher:
     Skiil Searcher for interacting with the SkillNet Search API.
     """
     
-    def __init__(self, skillnet_api_url: str = "http://api-skillnet.openkg.cn"):
-        self.skillnet_api_url = skillnet_api_url.rstrip("/")
+    def __init__(self, skillnet_api_url: Optional[str] = None):
+        self.skillnet_api_url = resolve_settings(skillnet_api_url=skillnet_api_url).skillnet_api_url.rstrip("/")
         self.session = requests.Session()
         self.session.headers.update({
-            "User-Agent": "SkillNet-Python-SDK/0.1.0"
+            "User-Agent": "SkillNet-Python-SDK/0.1.1"
         })
 
     def search(
@@ -51,6 +52,10 @@ class SkillNetSearcher:
         Returns:
             A list of skill dictionaries.
         """
+        if mode not in {"keyword", "vector"}:
+            raise ValueError("Search mode must be keyword or vector.")
+        if not 1 <= limit <= 100 or page < 1 or not 0 <= threshold <= 1:
+            raise ValueError("Use limit 1–100, page >= 1 and threshold 0–1.")
         endpoint = f"{self.skillnet_api_url}/v1/search"
         
         # 1. Construct base parameters
@@ -87,8 +92,7 @@ class SkillNetSearcher:
             search_res = SearchResponse(**response.json())
             
             if not search_res.success:
-                logger.warning(f"Search API returned success=False")
-                return []
+                raise RuntimeError("Search API returned success=False; this is not an empty result.")
 
             return search_res.data
             

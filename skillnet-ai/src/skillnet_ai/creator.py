@@ -3,6 +3,8 @@ import json
 import re
 import ast
 import logging
+from pathlib import Path, PureWindowsPath
+from urllib.parse import quote, urlsplit
 from typing import List, Optional, Dict, Any
 
 import requests
@@ -20,34 +22,45 @@ from skillnet_ai.prompts import (
     PROMPT_SKILL_USER_PROMPT_TEMPLATE
 )
 
+from skillnet_ai.config import resolve_settings
+from skillnet_ai.llm import chat_completion
+from skillnet_ai.errors import error_details
+from skillnet_ai.downloader import SkillDownloader, GitHubAPIError
+
 logger = logging.getLogger(__name__)
+
+class SkillCreationError(RuntimeError):
+    """Creation failed after writing some output; preserve its locations."""
+    def __init__(self, message, created_paths):
+        super().__init__(message)
+        self.created_paths = created_paths
+
 
 class SkillCreator:
     """
     Creates Skill packages from execution trajectories using OpenAI-compatible LLMs.
     """
     
-    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, model: str = "gpt-4o"):
-        self.api_key = api_key or os.getenv("API_KEY")
-        self.base_url = base_url or os.getenv("BASE_URL") or "https://api.openai.com/v1"
-        self.model = model
+    def __init__(self, api_key: Optional[str] = None, base_url: Optional[str] = None, model: Optional[str] = None):
+        settings = resolve_settings(api_key=api_key, base_url=base_url, model=model)
+        self.api_key, self.base_url, self.model = settings.api_key, settings.base_url, settings.model
         
         if not self.api_key:
             raise ValueError("API Key is missing. Please provide it in init or set API_KEY environment variable.")
             
-        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
+        self.client = OpenAI(api_key=self.api_key, base_url=self.base_url, timeout=120, max_retries=0)
 
     def _get_llm_response(self, messages: List[dict]) -> str:
         """Helper to call LLM and get string content."""
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages
-            )
-            content = response.choices[0].message.content
+            response = chat_completion(self.client, model=self.model, messages=messages)
+            choice = response.choices[0]
+            if choice.finish_reason != "stop":
+                raise ValueError("Model did not complete generation; output was not written.")
+            content = choice.message.content
             return content if content is not None else ""
         except Exception as e:
-            logger.error(f"LLM Call Failed: {e}")
+            logger.error("LLM call failed: %s", error_details(e)["message"])
             raise
 
     def create_from_trajectory(self, trajectory: str, output_dir: str = ".") -> List[str]:
@@ -78,26 +91,27 @@ class SkillCreator:
 
         created_paths = []
         
-        # 2. Create Content for each candidate
-        for cand in candidates:
-            name = cand.get("name")
-            description = cand.get("description")
-            logger.info(f"Creating content for skill: {name}...")
-            
-            content_messages = [
-                {"role": "system", "content": SKILL_CONTENT_SYSTEM_PROMPT},
-                {"role": "user", "content": SKILL_CONTENT_USER_PROMPT_TEMPLATE.format(
-                    trajectory=trajectory, name=name, description=description
-                )}
-            ]
-            
-            raw_content_response = self._get_llm_response(content_messages)
-            
-            # 3. Parse and Save Files
-            self._save_skill_files(raw_content_response, output_dir)
-            created_paths.append(os.path.join(output_dir, name))
-            
-        return created_paths
+        # Only report directories actually written, not model-proposed names.
+        try:
+            for cand in candidates:
+                name, description = cand.get("name"), cand.get("description")
+                if not isinstance(name, str) or not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", name):
+                    raise ValueError("Candidate metadata contains an invalid skill name.")
+                content_messages = [
+                    {"role": "system", "content": SKILL_CONTENT_SYSTEM_PROMPT},
+                    {"role": "user", "content": SKILL_CONTENT_USER_PROMPT_TEMPLATE.format(
+                        trajectory=trajectory, name=name, description=description)}
+                ]
+                response = self._get_llm_response(content_messages)
+                files = self._save_skill_files(response, output_dir)
+                roots = sorted({str(Path(f).parent) for f in files if Path(f).name == "SKILL.md"})
+                if not roots:
+                    raise ValueError("Generated candidate contains no SKILL.md file.")
+                created_paths.extend(roots)
+        except Exception as exc:
+            partial = sorted(set(created_paths + getattr(exc, "created_paths", [])))
+            raise SkillCreationError("Trajectory creation failed; inspect retained output.", partial) from exc
+        return list(dict.fromkeys(created_paths))
 
     def _parse_candidate_metadata(self, llm_output: str) -> List[dict]:
         """Extract JSON from the LLM output tags."""
@@ -115,38 +129,61 @@ class SkillCreator:
             
             # clean markdown code blocks if present
             json_str = json_str.replace("```json", "").replace("```", "").strip()
-            return json.loads(json_str)
+            candidates = json.loads(json_str)
+            if not isinstance(candidates, list) or any(not isinstance(item, dict) for item in candidates):
+                raise ValueError("Expected a list of candidate metadata objects.")
+            return candidates
         except Exception as e:
             logger.error(f"Failed to parse metadata JSON: {e}")
             return []
 
     def _save_skill_files(self, llm_output: str, output_base_dir: str) -> List[str]:
         """Parse the FILE blocks and write them to disk."""
-        # Regex to find: ## FILE: path \n ```lang \n content \n ```
-        pattern = re.compile(r'##\s*FILE:\s*(.+?)\s*\n```(?:\w*)\n(.*?)```', re.DOTALL)
-        matches = pattern.findall(llm_output)
-        
-        created_files = []
-        
-        if not matches:
-            logger.warning("No file blocks found in LLM output.")
-            return created_files
+        return self._save_github_skill_files(llm_output, output_base_dir)
 
-        for file_path, content in matches:
-            file_path = file_path.strip()
-            full_path = os.path.join(output_base_dir, file_path)
-            
-            # Create directory if missing
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-            
-            try:
-                with open(full_path, 'w', encoding='utf-8') as f:
-                    f.write(content)
-                logger.info(f"Saved: {full_path}")
-                created_files.append(full_path)
-            except IOError as e:
-                logger.error(f"Failed to write {full_path}: {e}")
-        
+    @staticmethod
+    def _validate_output_path(output_base_dir: str, file_path: str) -> Path:
+        """Reject generated paths that escape the requested output directory."""
+        file_path = file_path.strip()
+        relative = Path(file_path)
+        if (
+            not file_path
+            or "\x00" in file_path
+            or "\\" in file_path
+            or file_path.endswith("/")
+            or relative.is_absolute()
+            or PureWindowsPath(file_path).drive
+            or ".." in relative.parts
+            or not relative.parts
+        ):
+            raise ValueError(f"Unsafe generated file path: {file_path!r}")
+
+        root = Path(output_base_dir).resolve()
+        target = Path(output_base_dir) / relative
+        resolved = target.resolve()
+        if resolved == root or not resolved.is_relative_to(root):
+            raise ValueError(f"Generated file path escapes output directory: {file_path!r}")
+        return target
+
+    def _write_skill_files(
+        self, files: List[tuple[str, str]], output_base_dir: str
+    ) -> List[str]:
+        # Validate the entire response before creating any files, including
+        # existing symlinks that resolve outside the requested directory.
+        targets = [
+            (self._validate_output_path(output_base_dir, name), content)
+            for name, content in files
+        ]
+        created_files = []
+        try:
+            for target, content in targets:
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_text(content, encoding="utf-8")
+                logger.info("Saved: %s", target)
+                created_files.append(str(target))
+        except OSError as exc:
+            roots = sorted({str(Path(f).parent) for f in created_files if Path(f).name == "SKILL.md"})
+            raise SkillCreationError("Could not write all generated files.", roots) from exc
         return created_files
 
     def create_from_office(
@@ -213,8 +250,10 @@ class SkillCreator:
             return list(skill_dirs)
             
         except Exception as e:
-            logger.error(f"Failed to create skill from office document: {e}")
-            return []
+            logger.error("Failed to create skill from office document: %s", error_details(e)["message"])
+            if isinstance(e, ValueError):
+                return []  # Preserve the existing rejected-input contract.
+            raise
 
     def create_from_prompt(
         self,
@@ -264,8 +303,10 @@ class SkillCreator:
             return list(skill_dirs)
             
         except Exception as e:
-            logger.error(f"Failed to create skill from user input: {e}")
-            return []
+            logger.error("Failed to create skill from user input: %s", error_details(e)["message"])
+            if isinstance(e, ValueError):
+                return []  # Preserve the existing rejected-input contract.
+            raise
 
     def create_from_github(
         self,
@@ -297,7 +338,6 @@ class SkillCreator:
                 return []
 
             # Save skill package
-            skill_name = repo_data["metadata"]["name"].lower().replace(" ", "-").replace("_", "-")
             created_files = self._save_github_skill_files(skill_content, output_dir)
             
             # Extract unique skill directories from created files
@@ -308,11 +348,13 @@ class SkillCreator:
                 skill_dirs.add(os.path.join(output_dir, skill_dir))
             
             logger.info(f"Skill created successfully from GitHub: {github_url}")
-            return list(skill_dirs) if skill_dirs else [os.path.join(output_dir, skill_name)]
+            return sorted(skill_dirs)
 
         except Exception as e:
-            logger.error(f"Failed to create skill from GitHub: {e}")
-            return []
+            logger.error("Failed to create skill from GitHub: %s", error_details(e)["message"])
+            if isinstance(e, ValueError):
+                return []  # Preserve the existing rejected-input contract.
+            raise
 
     def _fetch_github_repo_data(
         self,
@@ -326,9 +368,11 @@ class SkillCreator:
         logger.info("Fetching repository data...")
 
         metadata = fetcher.fetch_repo_metadata(owner, repo)
-        branch = metadata.get("default_branch", branch)
+        branch = branch or metadata.get("default_branch", "main")
         readme = fetcher.fetch_readme(owner, repo, branch)
         file_tree = fetcher.fetch_file_tree(owner, repo, branch)
+        if not readme and not file_tree:
+            raise RuntimeError("No repository content could be read; creation was not sent to the model.")
         languages = fetcher.fetch_languages(owner, repo)
         code_analysis = self._analyze_github_code_files(
             fetcher, owner, repo, branch, file_tree, max_files
@@ -393,7 +437,7 @@ class SkillCreator:
     def _generate_github_skill_content(
         self, 
         repo_data: Dict[str, Any],
-        max_retries: int = 2
+        max_retries: int = 0
     ) -> Optional[str]:
         """Generate skill content from repository data using LLM."""
         logger.info("Generating skill content with LLM...")
@@ -442,9 +486,8 @@ class SkillCreator:
                     return response
                     
             except Exception as e:
-                logger.error(f"LLM call failed (attempt {attempt + 1}): {e}")
-                if attempt == max_retries:
-                    return None
+                logger.error("LLM call failed: %s", error_details(e)["message"])
+                raise
         
         return None
 
@@ -456,9 +499,7 @@ class SkillCreator:
         has_skill_md = "SKILL.md" in content
         has_file_block = "## FILE:" in content
         has_frontmatter = "---" in content and "name:" in content
-        min_length = len(content) >= 1000
-        
-        return has_skill_md and has_file_block and has_frontmatter and min_length
+        return has_skill_md and has_file_block and has_frontmatter
 
     def _build_code_summary(self, code_analysis: Dict[str, Any]) -> str:
         """Build code analysis summary for LLM prompt."""
@@ -522,66 +563,25 @@ class SkillCreator:
 
     def _save_github_skill_files(self, llm_output: str, output_base_dir: str) -> List[str]:
         """Parse FILE blocks and write to disk, handling nested code blocks."""
-        created_files = []
-        parts = re.split(r'##\s*FILE:\s*', llm_output)
-        
-        if len(parts) < 2:
+        parsed_files = []
+        blocks = re.split(r"^##[ \t]+FILE:[ \t]*", llm_output.replace("\r\n", "\n"), flags=re.MULTILINE)
+        if len(blocks) < 2:
             logger.warning("No file blocks found in LLM output.")
-            return created_files
-        
-        for part in parts[1:]:
-            lines = part.split('\n', 1)
-            if len(lines) < 2:
-                continue
-            
-            file_path = lines[0].strip()
-            rest = lines[1]
-            
-            match = re.match(r'```(?:\w*)\n', rest)
+            return []
+        for block in blocks[1:]:
+            path, separator, body = block.partition("\n")
+            if not separator or not path.strip():
+                raise ValueError("Generated FILE block has no file path or body.")
+            # Match the final outer fence greedily, preserving nested Markdown
+            # examples (including unlabelled fences). Parse all files before writing.
+            match = re.fullmatch(
+                r"(?P<fence>`{3,})[^`\n]*\n(?P<content>.*)(?:^)(?P=fence)[ \t]*(?:\n\s*)?",
+                body, flags=re.DOTALL | re.MULTILINE,
+            )
             if not match:
-                continue
-            
-            content_start = match.end()
-            content = rest[content_start:]
-            
-            # Find closing ``` by tracking nested code blocks
-            in_nested_block = False
-            end_pos = -1
-            i = 0
-            
-            while i < len(content):
-                # Check for ``` at start of line
-                if content[i:i+3] == '```' and (i == 0 or content[i-1] == '\n'):
-                    if not in_nested_block:
-                        after = content[i+3:i+50].split('\n')[0].strip()
-                        if after == '':
-                            end_pos = i
-                            break
-                        else:
-                            in_nested_block = True
-                    else:
-                        in_nested_block = False
-                i += 1
-            
-            if end_pos == -1:
-                end_pos = content.rfind('\n```')
-                if end_pos == -1:
-                    end_pos = len(content)
-            
-            file_content = content[:end_pos]
-            full_path = os.path.join(output_base_dir, file_path.strip())
-            
-            os.makedirs(os.path.dirname(full_path), exist_ok=True)
-            
-            try:
-                with open(full_path, 'w', encoding='utf-8') as f:
-                    f.write(file_content)
-                logger.info(f"Saved: {full_path}")
-                created_files.append(full_path)
-            except IOError as e:
-                logger.error(f"Failed to write {full_path}: {e}")
-        
-        return created_files
+                raise ValueError("Generated FILE block has invalid or unclosed code fences.")
+            parsed_files.append((path.strip(), match.group("content")))
+        return self._write_skill_files(parsed_files, output_base_dir)
 
 
 class _GitHubFetcher:
@@ -594,87 +594,32 @@ class _GitHubFetcher:
     }
 
     def __init__(self, api_token: Optional[str] = None):
-        self.api_token = api_token or os.getenv("GITHUB_TOKEN")
-        self.session = requests.Session()
-        self.session.headers.update({
-            "Accept": "application/vnd.github.v3+json",
-            "User-Agent": "SkillNet-AI/1.0"
-        })
-        if self.api_token:
-            self.session.headers.update({"Authorization": f"token {self.api_token}"})
+        self.downloader = SkillDownloader(api_token=api_token, mirror_url="")
+        self.api_token = self.downloader.api_token
+        self.session = self.downloader.session
 
-    def _request_with_retry(
-        self, 
-        url: str, 
-        timeout: int = 10, 
-        max_retries: int = 3,
-        base_delay: float = 1.0
-    ) -> Optional[requests.Response]:
-        """HTTP GET with exponential backoff and rate limit handling."""
-        import time
-        
-        for attempt in range(1, max_retries + 1):
-            try:
-                response = self.session.get(url, timeout=timeout)
-                
-                if response.status_code == 403:
-                    remaining = response.headers.get("X-RateLimit-Remaining", "?")
-                    if remaining == "0":
-                        reset_time = int(response.headers.get("X-RateLimit-Reset", 0))
-                        wait_seconds = max(0, reset_time - int(time.time()))
-                        logger.warning(f"GitHub rate limit exceeded. Resets in {wait_seconds}s")
-                        if wait_seconds < 60:
-                            time.sleep(wait_seconds + 1)
-                            continue
-                
-                return response
-                
-            except requests.exceptions.Timeout:
-                if attempt < max_retries:
-                    delay = base_delay * (2 ** (attempt - 1))
-                    logger.warning(f"Timeout (attempt {attempt}/{max_retries}), retry in {delay:.1f}s")
-                    time.sleep(delay)
-                else:
-                    logger.error(f"Request failed after {max_retries} attempts: {url}")
-                    return None
-                    
-            except requests.exceptions.ConnectionError:
-                if attempt < max_retries:
-                    delay = base_delay * (2 ** (attempt - 1))
-                    logger.warning(f"Connection error (attempt {attempt}/{max_retries}), retry in {delay:.1f}s")
-                    time.sleep(delay)
-                else:
-                    logger.error(f"Connection failed after {max_retries} attempts: {url}")
-                    return None
-                    
-            except requests.exceptions.RequestException as e:
-                logger.error(f"Request failed: {e}")
-                return None
-        
-        return None
+    def _request_with_retry(self, url: str, timeout: int = 10,
+                            max_retries: int = 3, base_delay: float = 1.0,
+                            *, raw: bool = False):
+        return self.downloader._request_with_retry(url, timeout=timeout,
+            max_retries=max_retries, base_delay=base_delay, raw=raw)
 
     def parse_github_url(self, url: str) -> tuple:
         """Parse GitHub URL to extract owner, repo, branch, and optional path."""
-        url = url.rstrip("/")
-        if url.endswith(".git"):
-            url = url[:-4]
-
-        if "github.com/" in url:
-            parts = url.split("github.com/")[-1].split("/")
-            if len(parts) < 2:
-                raise ValueError(f"Invalid GitHub URL format: {url}")
-            
-            owner, repo = parts[0], parts[1]
-            branch = "main"
-            path = ""
-
-            if len(parts) > 3 and parts[2] in ("tree", "blob"):
-                branch = parts[3]
-                path = "/".join(parts[4:]) if len(parts) > 4 else ""
-            
-            return owner, repo, branch, path
-        
-        raise ValueError(f"Invalid GitHub URL: {url}")
+        parsed = urlsplit(url)
+        if (parsed.scheme != "https" or parsed.netloc.lower() != "github.com"
+                or parsed.query or parsed.fragment):
+            raise ValueError("Expected an HTTPS github.com repository URL.")
+        parts = parsed.path.strip("/").split("/")
+        if len(parts) == 2:
+            owner, repo = parts
+            repo = repo.removesuffix(".git")
+            # Reuse path validation before constructing any authenticated requests.
+            owner, repo, _, _, _ = self.downloader._parse_github_url(
+                f"https://github.com/{owner}/{repo}/tree/main")
+            return owner, repo, None, ""
+        owner, repo, ref, path, _ = self.downloader._parse_github_url(url)
+        return owner, repo, ref, path
 
     def fetch_repo_metadata(self, owner: str, repo: str) -> Dict[str, Any]:
         """Fetch repository metadata from GitHub API."""
@@ -682,8 +627,9 @@ class _GitHubFetcher:
         
         response = self._request_with_retry(url, timeout=10)
         if response is None:
-            logger.warning("Failed to fetch repo metadata: request failed")
-            return {"name": repo, "full_name": f"{owner}/{repo}"}
+            raise GitHubAPIError(0, "Cannot fetch repository metadata; check connectivity.")
+        if response.status_code != 200:
+            raise GitHubAPIError(response.status_code, "Cannot access the repository; check URL and GitHub permissions.")
         
         try:
             response.raise_for_status()
@@ -711,18 +657,17 @@ class _GitHubFetcher:
         readme_names = ["README.md", "README.rst", "README.txt", "README"]
         
         for readme_name in readme_names:
-            url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{readme_name}"
-            response = self._request_with_retry(url, timeout=10)
-            if response and response.status_code == 200:
+            content = self.fetch_file_content(owner, repo, readme_name, branch)
+            if content is not None:
                 logger.info(f"Found README: {readme_name}")
-                return response.text
+                return content
         
         logger.warning("No README found in repository")
         return None
 
     def fetch_file_tree(self, owner: str, repo: str, branch: str = "main") -> List[Dict]:
         """Fetch repository file tree structure."""
-        url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{branch}?recursive=1"
+        url = f"https://api.github.com/repos/{owner}/{repo}/git/trees/{quote(branch, safe='')}?recursive=1"
         
         response = self._request_with_retry(url, timeout=15)
         if response is None:
@@ -784,9 +729,11 @@ class _GitHubFetcher:
         self, owner: str, repo: str, file_path: str, branch: str = "main"
     ) -> Optional[str]:
         """Fetch content of a specific file."""
-        url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"
-        
-        response = self._request_with_retry(url, timeout=10, max_retries=2)
+        if self.api_token:
+            url = self.downloader._contents_url(owner, repo, branch, file_path)
+        else:
+            url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{file_path}"
+        response = self._request_with_retry(url, timeout=10, max_retries=2, raw=bool(self.api_token))
         if response and response.status_code == 200:
             return response.text
         

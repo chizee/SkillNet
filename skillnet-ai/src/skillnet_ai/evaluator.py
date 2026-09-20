@@ -1,5 +1,6 @@
 import ast
 import inspect
+import hashlib
 import json
 import re
 import logging
@@ -10,6 +11,7 @@ import subprocess
 import time
 from concurrent.futures import ThreadPoolExecutor, as_completed, wait, FIRST_COMPLETED
 from dataclasses import dataclass
+from urllib.parse import urlsplit
 from typing import Dict, Any, List, Optional, Tuple, Callable, Iterator
 
 from openai import OpenAI
@@ -17,6 +19,9 @@ from json_repair import repair_json
 from tqdm import tqdm
 
 from skillnet_ai.downloader import SkillDownloader
+from skillnet_ai.llm import chat_completion
+from skillnet_ai.validation import validate_evaluation
+from skillnet_ai.errors import error_details
 from skillnet_ai.injection import (
     InjectionContent,
     InjectionReport,
@@ -49,6 +54,7 @@ class EvaluatorConfig:
     max_script_output_chars: int = 400
     github_token: Optional[str] = None
     scan_injection: bool = True
+    json_mode: str = "auto"
 
 
 @dataclass
@@ -80,13 +86,15 @@ class Skill:
         normalized_url = cls._normalize_url(url)
         if not normalized_url:
             return None, f"Invalid GitHub URL: {url}"
-        # Derive skill name from URL if not provided
-        name = kwargs.get('name') or normalized_url.rstrip('/').split('/')[-1]
-
+        # Namespace the owned cache by URL, so different repositories do not collide.
+        cache_dir = os.path.join(cache_dir, hashlib.sha256(normalized_url.encode()).hexdigest()[:16])
         # Download to local cache (with retries in evaluator)
         local_path = None
         for attempt in range(max_retries):
-            local_path = downloader.download(normalized_url, target_dir=cache_dir)
+            try:
+                local_path = downloader.download(normalized_url, target_dir=cache_dir, overwrite=True, require_skill=True)
+            except Exception as exc:
+                return None, error_details(exc)["message"]
             if local_path:
                 break
             if attempt < max_retries - 1:
@@ -100,7 +108,7 @@ class Skill:
 
         return cls(
             path=local_path,
-            name=name,
+            name=kwargs.get("name") or os.path.basename(local_path),
             url=url,
             description=kwargs.get('description'),
             category=kwargs.get('category')
@@ -131,12 +139,13 @@ class Skill:
     
     @staticmethod
     def _normalize_url(url: str) -> Optional[str]:
-        """Normalize GitHub URL to /tree/ format."""
+        """Keep blob semantics so the downloader resolves the whole skill package."""
         if not url:
             return None
-        if "/blob/" in url:
-            return url.replace("/blob/", "/tree/")
-        if "/tree/" in url:
+        parsed = urlsplit(url)
+        parts = parsed.path.strip("/").split("/")
+        if (parsed.scheme == "https" and parsed.netloc.lower() == "github.com"
+                and len(parts) >= 4 and parts[2] in {"tree", "blob"}):
             return url
         return None
 
@@ -886,7 +895,8 @@ class LLMClient:
     """Thin wrapper around the OpenAI client for evaluation calls."""
     
     def __init__(self, config: EvaluatorConfig):
-        self.client = OpenAI(api_key=config.api_key, base_url=config.base_url)
+        self.client = OpenAI(api_key=config.api_key, base_url=config.base_url, timeout=120, max_retries=0)
+        self.json_mode = config.json_mode
         self.model = config.model
         self.temperature = config.temperature
     
@@ -917,8 +927,7 @@ class LLMClient:
 
         # Stage 4: attempt repair via json-repair
         logger.warning(
-            "JSON parsing failed, attempting repair. raw_response=%r",
-            cleaned[:200],
+            "JSON parsing failed, attempting repair.",
         )
         try:
             repaired = repair_json(cleaned, return_objects=False)
@@ -944,16 +953,15 @@ class LLMClient:
         ]
 
         try:
-            response = self.client.chat.completions.create(
-                model=self.model,
-                messages=messages,
-                response_format={"type": "json_object"},
-                temperature=self.temperature
-            )
-            raw_response = response.choices[0].message.content
-            return self._parse_json_response(raw_response)
+            response = chat_completion(self.client, model=self.model, messages=messages,
+                                       json_mode=self.json_mode, temperature=self.temperature)
+            choice = response.choices[0]
+            if choice.finish_reason != "stop":
+                raise ValueError("Model did not complete evaluation; retry with a suitable output budget/model.")
+            raw_response = choice.message.content
+            return validate_evaluation(self._parse_json_response(raw_response))
         except Exception as e:
-            logger.error(f"LLM call failed: {e}")
+            logger.error("LLM call failed: %s", error_details(e)["message"])
             raise
 
 
@@ -1121,8 +1129,11 @@ class SkillEvaluator:
             
         except Exception as e:
             skill_name = getattr(skill, "name", "[unknown skill]")
-            logger.exception("Evaluation failed for %s: %s", skill_name, e)
-            return self._create_error_result(str(e))
+            details = error_details(e)
+            logger.error("Evaluation failed for %s: %s", skill_name, details["message"])
+            result = self._create_error_result(details["message"])
+            result["error_details"] = details
+            return result
     
     def evaluate_batch(self, skills: List[Skill]) -> List[Dict[str, Any]]:
         """

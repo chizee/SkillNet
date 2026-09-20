@@ -377,46 +377,25 @@ curl "http://api-skillnet.openkg.cn/v1/search?q=reading%20charts&mode=vector&thr
 
 ## Use SkillNet Inside Agents
 
-SkillNet is packaged as a portable agent skill at [`skills/skillnet/`](https://github.com/zjunlp/SkillNet/tree/main/skills/skillnet). Install it into an agent runtime and the agent can search, download, create, evaluate, and analyze skills during coding or research tasks.
+The canonical [skillnet skill](skills/skillnet/SKILL.md) provides search, download,
+creation and evaluation through the real SDK. It targets Codex, Claude Code, dsh
+and WorkBuddy with one complete skill directory.
 
-<div align="center">
+- [Installation and API configuration / 安装与 API 配置](skills/skillnet/references/setup.md)
+- [Agent directories and WorkBuddy import](skills/skillnet/references/platforms.md)
+- [Compatibility checks and current validation status](skillnet-ai/acceptance/README.md)
 
-https://github.com/user-attachments/assets/ae6020d9-6846-4672-84ce-fa9c8057e92b
+The revised skill requires the accompanying **skillnet-ai 0.1.1 release candidate**.
+Before its PyPI release, install from this checkout with `python -m pip install ./skillnet-ai`.
+Existing environment variables continue to work. Optional `skillnet configure`
+saves user settings shared across agents; `skillnet doctor --json` reports their
+status without printing credentials. See the setup guide for Windows/macOS isolation.
 
-</div>
+Try: “用 SkillNet 找一个处理 CSV 的技能，下载后检查它是否适合我的数据。”
+Or: “Use SkillNet to create a reusable CSV header checker and evaluate it.”
 
-### Claude Code
-
-```bash
-git clone https://github.com/zjunlp/SkillNet.git
-cd SkillNet
-
-mkdir -p ~/.claude/skills
-cp -R skills/skillnet ~/.claude/skills/skillnet
-```
-
-Try:
-
-```text
-Use SkillNet to search for a docker skill and summarize the top result.
-```
-
-### Codex
-
-```bash
-git clone https://github.com/zjunlp/SkillNet.git
-cd SkillNet
-
-CODEX_HOME="${CODEX_HOME:-$HOME/.codex}"
-mkdir -p "$CODEX_HOME/skills"
-cp -R skills/skillnet "$CODEX_HOME/skills/skillnet"
-```
-
-Try:
-
-```text
-Use $skillnet to search for a LangGraph skill before planning this task.
-```
+Windows/macOS client verification is recorded separately from automated SDK tests;
+a supported directory format alone is not a claim of end-to-end agent validation.
 
 ### Model Context Protocol
 

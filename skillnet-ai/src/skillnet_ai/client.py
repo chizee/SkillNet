@@ -10,8 +10,7 @@ from skillnet_ai.analyzer import ScenarioSkillGraphAnalyzer, SkillRelationshipAn
 from skillnet_ai.orchestrator import DEFAULT_ORCHESTRATION_TIMEOUT, SkillOrchestrator
 from skillnet_ai.models import OrchestrateResult
 
-DEFAULT_MODEL = os.getenv("SKILLNET_MODEL", "gpt-4o")
-DEFAULT_BASE_URL = "https://api.openai.com/v1"
+from skillnet_ai.config import DEFAULT_MODEL, DEFAULT_BASE_URL, resolve_settings
 
 class SkillNetError(Exception):
     """Custom exception class for SkillNet Client errors."""
@@ -28,20 +27,28 @@ class SkillNetClient:
         self, 
         api_key: Optional[str] = None, 
         base_url: Optional[str] = None,
-        github_token: Optional[str] = None
+        github_token: Optional[str] = None,
+        *,
+        model: Optional[str] = None,
+        skillnet_api_url: Optional[str] = None,
+        json_mode: Optional[str] = None,
     ):
         """
         Initialize the SkillNet Client.
 
         Args:
-            api_key: OpenAI/SkillNet API Key. Defaults to env var API_KEY.
+            api_key: Model API key. Uses API_KEY then optional user config.
             base_url: Base URL for the LLM API. Defaults to env var BASE_URL or OpenAI default.
             github_token: GitHub token for downloading private skills or avoiding rate limits.
                           Defaults to env var GITHUB_TOKEN.
         """
-        self.api_key = api_key or os.getenv("API_KEY")
-        self.base_url = base_url or os.getenv("BASE_URL") or DEFAULT_BASE_URL
-        self.github_token = github_token or os.getenv("GITHUB_TOKEN")
+        self.settings = resolve_settings(api_key=api_key, base_url=base_url,
+                                         github_token=github_token, model=model,
+                                         skillnet_api_url=skillnet_api_url, json_mode=json_mode)
+        self.api_key = self.settings.api_key
+        self.base_url = self.settings.base_url
+        self.github_token = self.settings.github_token
+        self.model = self.settings.model
 
 
     def search(
@@ -72,7 +79,7 @@ class SkillNetClient:
             A list of skill objects found.
         """
         try:
-            searcher = SkillNetSearcher()
+            searcher = SkillNetSearcher(skillnet_api_url=self.settings.skillnet_api_url)
             results = searcher.search(
                 q=q,
                 mode=mode, 
@@ -93,6 +100,7 @@ class SkillNetClient:
         target_dir: str = ".",
         token: Optional[str] = None,
         mirror_url: Optional[str] = None,
+        *, overwrite: bool = False, require_skill: bool = True,
     ) -> str:
         """
         Download a skill from a GitHub URL.
@@ -101,7 +109,9 @@ class SkillNetClient:
             url: The GitHub URL of the specific skill folder.
             target_dir: Local directory to install into.
             token: Optional override for GitHub token.
-            mirror_url: Mirror URL for fallback when GitHub is slow/unavailable.
+            overwrite: Explicitly replace an existing folder after complete download.
+            require_skill: Validate SKILL.md before publishing (default True).
+            mirror_url: Public raw-file fallback; disabled with GitHub authentication.
                         Configure via GITHUB_MIRROR env var or pass explicitly.
                         Example mirrors: https://ghfast.top/, https://ghproxy.com/
 
@@ -112,11 +122,12 @@ class SkillNetClient:
             SkillNetError: If download fails.
         """
         # Use instance token if specific token not provided
-        use_token = token if token else self.github_token
-        downloader = SkillDownloader(api_token=use_token, mirror_url=mirror_url)
+        use_token = token if token is not None else self.github_token
+        downloader = SkillDownloader(api_token=use_token, mirror_url=mirror_url if mirror_url is not None else self.settings.github_mirror)
 
         try:
-            installed_path = downloader.download(folder_url=url, target_dir=target_dir)
+            installed_path = downloader.download(folder_url=url, target_dir=target_dir,
+                                                 overwrite=overwrite, require_skill=require_skill)
             if not installed_path:
                 # Raised only when download returns None (e.g., URL parsing failed, no files)
                 raise SkillNetError("Download failed: No files were found or downloaded.")
@@ -147,7 +158,7 @@ class SkillNetClient:
         office_file: Optional[str] = None,
         prompt: Optional[str] = None,
         output_dir: Union[str, Path] = "./generated_skills",
-        model: str = DEFAULT_MODEL,
+        model: Optional[str] = None,
         max_files: int = 50
     ) -> List[str]:
         """
@@ -199,7 +210,7 @@ class SkillNetClient:
             creator = SkillCreator(
                 api_key=self.api_key, 
                 base_url=self.base_url, 
-                model=model
+                model=model if model is not None else self.model
             )
             
             if input_type == "github":
@@ -237,7 +248,9 @@ class SkillNetClient:
             
             return created_paths if created_paths else []
         except Exception as e:
-            raise SkillNetError(f"Creation failed: {str(e)}") from e
+            error = SkillNetError(f"Creation failed: {str(e)}")
+            error.created_paths = getattr(e, "created_paths", [])
+            raise error from e
 
     def evaluate(
         self,
@@ -245,9 +258,10 @@ class SkillNetClient:
         name: Optional[str] = None,
         category: Optional[str] = None,
         description: Optional[str] = None,
-        model: str = DEFAULT_MODEL,
+        model: Optional[str] = None,
         max_workers: int = 5,
-        cache_dir: Union[str, Path] = "./evaluate_cache_dir"
+        cache_dir: Union[str, Path] = "./evaluate_cache_dir",
+        json_mode: Optional[str] = None,
     ) -> Dict[str, Any]:
         """
         Evaluate a skill (local path or URL).
@@ -269,10 +283,11 @@ class SkillNetClient:
         config = EvaluatorConfig(
             api_key=self.api_key,
             base_url=self.base_url,
-            model=model,
+            model=model if model is not None else self.model,
             max_workers=max_workers,
             cache_dir=cache_dir,
-            github_token=self.github_token
+            github_token=self.github_token,
+            json_mode=json_mode if json_mode is not None else self.settings.json_mode,
         )
         evaluator = SkillEvaluator(config)
 
@@ -295,7 +310,9 @@ class SkillNetClient:
                 )
             
             if "error" in result:
-                raise SkillNetError(f"Evaluation logic returned error: {result['error']}")
+                error = SkillNetError(f"Evaluation logic returned error: {result['error']}")
+                error.details = result.get("error_details")
+                raise error
                 
             return result
 
@@ -306,7 +323,7 @@ class SkillNetClient:
         self,
         skills_dir: Union[str, Path],
         save_to_file: bool = True,
-        model: str = DEFAULT_MODEL,
+        model: Optional[str] = None,
         mode: Literal["basic", "scenario"] = "basic",
         max_workers: int = 4,
         output_dir: Union[str, Path, None] = None,
@@ -350,7 +367,7 @@ class SkillNetClient:
                 analyzer = SkillRelationshipAnalyzer(
                     api_key=self.api_key,
                     base_url=self.base_url,
-                    model=model
+                    model=model if model is not None else self.model
                 )
 
                 results = analyzer.analyze_local_skills(
@@ -362,7 +379,7 @@ class SkillNetClient:
             analyzer = ScenarioSkillGraphAnalyzer(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                model=model,
+                model=model if model is not None else self.model,
                 embedding_api_key=embedding_api_key,
                 embedding_base_url=embedding_base_url,
                 embedding_model=embedding_model,
@@ -384,7 +401,7 @@ class SkillNetClient:
         self,
         query: str,
         scene: str = "sciatlas",
-        model: str = DEFAULT_MODEL,
+        model: Optional[str] = None,
         timeout: float = DEFAULT_ORCHESTRATION_TIMEOUT,
     ) -> OrchestrateResult:
         """
@@ -406,7 +423,7 @@ class SkillNetClient:
             orchestrator = SkillOrchestrator(
                 api_key=self.api_key,
                 base_url=self.base_url,
-                model=model,
+                model=model if model is not None else self.model,
                 execution_timeout_seconds=timeout,
             )
             return orchestrator.orchestrate(

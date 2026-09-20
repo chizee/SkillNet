@@ -912,7 +912,7 @@ description: ...
 **IMPORTANT:**
 - SKILL.md MUST use ```markdown as language tag and include ALL content (frontmatter + full body) inside ONE code block
 - Generate COMPLETE files, do not use "..." or "[content continues]"
-- SKILL.md should be comprehensive (at least 100+ lines)
+- SKILL.md should be concise and sufficient for the task; move conditional detail to references. There is no minimum line count.
 - scripts/: At least one RUNNABLE Python script with actual library API usage
 - references/: At least one DETAILED API reference with function signatures
 

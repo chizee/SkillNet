@@ -1,26 +1,31 @@
-import typer
-import os
+import getpass
 import json
+import logging
+import os
+import shutil
+import sys
+from contextlib import redirect_stdout
 from enum import Enum
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any, Optional
+
+import requests
+import typer
 from rich.console import Console
 from rich.table import Table
 from rich.panel import Panel
 from rich.columns import Columns
-from skillnet_ai.client import DEFAULT_BASE_URL, DEFAULT_MODEL, SkillNetClient
+
+from skillnet_ai.client import SkillNetClient
+from skillnet_ai.config import config_path, resolve_settings, save_config, redact
+from skillnet_ai.errors import error_details
 from skillnet_ai.orchestrator import DEFAULT_ORCHESTRATION_TIMEOUT
-from skillnet_ai.creator import SkillCreator
-from skillnet_ai.downloader import SkillDownloader, GitHubAPIError
-from skillnet_ai.evaluator import SkillEvaluator, EvaluatorConfig
-from skillnet_ai.searcher import SkillNetSearcher
 from skillnet_ai.analyzer import ScenarioSkillGraphAnalyzer, SkillRelationshipAnalyzer
+from skillnet_ai.validation import validate_skill, validate_evaluation, DIMENSIONS
 
-app = typer.Typer(help="SkillNet AI CLI Tool")
+app = typer.Typer(help="SkillNet AI CLI Tool", no_args_is_help=True)
 console = Console()
-
-API_KEY = os.getenv("API_KEY")
-BASE_URL = os.getenv("BASE_URL") or DEFAULT_BASE_URL
 
 
 class AnalyzeMode(str, Enum):
@@ -28,140 +33,326 @@ class AnalyzeMode(str, Enum):
     scenario = "scenario"
 
 
-def _model_dump(model: Any) -> dict:
-    if hasattr(model, "model_dump"):
-        return _json_safe(model.model_dump())
-    if hasattr(model, "dict"):
-        return _json_safe(model.dict())
-    return _json_safe(dict(getattr(model, "__dict__", {})))
+class RedactedFormatter(logging.Formatter):
+    def format(self, record):
+        return redact(super().format(record))
 
 
-def _json_safe(value: Any) -> Any:
-    if isinstance(value, list):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, tuple):
-        return [_json_safe(item) for item in value]
-    if isinstance(value, dict):
-        return {str(key): _json_safe(item) for key, item in value.items()}
+@app.callback(invoke_without_command=True)
+def main(version_flag: bool = typer.Option(False, "--version", is_eager=True)):
+    """Search, download, create and evaluate reusable skills."""
+    if version_flag:
+        typer.echo(version("skillnet-ai"))
+        raise typer.Exit()
+    logger = logging.getLogger("skillnet_ai")
+    for handler in list(logger.handlers):
+        if getattr(handler, "_skillnet_cli", False):
+            logger.removeHandler(handler)
+    handler = logging.StreamHandler()
+    handler._skillnet_cli = True
+    handler.setFormatter(RedactedFormatter("%(levelname)s: %(message)s"))
+    logger.addHandler(handler)
+    logger.propagate = False
+
+
+def _json_safe(value: Any):
     if hasattr(value, "model_dump"):
         return _json_safe(value.model_dump())
-    if hasattr(value, "dict"):
-        return _json_safe(value.dict())
-    if hasattr(value, "__dict__") and not isinstance(value, type):
-        return _json_safe(dict(value.__dict__))
+    if isinstance(value, dict):
+        return {str(k): _json_safe(v) for k, v in value.items()}
+    if isinstance(value, (tuple, list)):
+        return [_json_safe(v) for v in value]
+    if isinstance(value, Path):
+        return str(value)
     return value
+
+
+def _model_dump(model: Any) -> dict:
+    return _json_safe(model.model_dump() if hasattr(model, "model_dump") else vars(model))
+
+
+def _emit(data, json_output: bool, *, error=None):
+    if json_output:
+        # ASCII escapes keep redirected JSON portable in Windows legacy codepages.
+        typer.echo(json.dumps({"ok": error is None, "data": _json_safe(data), "error": error}))
+    elif error:
+        diagnostics = Console(stderr=True)
+        diagnostics.print(f"Error: {error['message']}", markup=False)
+        diagnostics.print(error["hint"], markup=False)
+        if data is not None:
+            diagnostics.print_json(data=_json_safe(data))
+
+
+def _fail(exc, json_output, data=None):
+    _emit(data, json_output, error=error_details(exc))
+    raise typer.Exit(code=1)
+
 
 @app.command()
 def search(
-    q: str = typer.Argument(..., help="The search query (keywords or natural language description)."),
-    mode: str = typer.Option("keyword", help="Search mode: 'keyword' (exact/fuzzy) or 'vector' (semantic AI)."),
-    category: str = typer.Option(None, help="Filter results by category (e.g., 'Development')."),
-    limit: int = typer.Option(20, help="Maximum number of results to return."),
-    # Keyword specific options
-    page: int = typer.Option(1, help="Page number (only for keyword mode)."),
-    min_stars: int = typer.Option(0, help="Minimum star rating (only for keyword mode)."),
-    sort_by: str = typer.Option("stars", help="Sort criteria: 'stars' or 'recent' (only for keyword mode)."),
-    # Vector specific options
-    threshold: float = typer.Option(0.8, help="Similarity threshold 0.0-1.0 (only for vector mode)."),
+    q: str = typer.Argument(...),
+    mode: str = typer.Option("keyword", help="keyword or vector"),
+    category: Optional[str] = typer.Option(None),
+    limit: int = typer.Option(20, min=1, max=100),
+    page: int = typer.Option(1, min=1),
+    min_stars: int = typer.Option(0, min=0),
+    sort_by: str = typer.Option("stars"),
+    threshold: float = typer.Option(0.8, min=0, max=1),
+    json_output: bool = typer.Option(False, "--json"),
 ):
-    """
-    Search for skills on SkillNet using Keyword match or Vector (AI) semantic search.
-    """
+    """Search SkillNet; no LLM key required."""
     try:
-        # Initialize Searcher (Ensure URL points to your actual API)
-        searcher = SkillNetSearcher()
-
-        # Visual feedback during API call
-        with console.status(f"[bold green]Searching SkillNet ({mode} mode)..."):
-            results = searcher.search(
-                q=q,
-                mode=mode,  # type: ignore
-                category=category,
-                limit=limit,
-                page=page,
-                min_stars=min_stars,
-                sort_by=sort_by,
-                threshold=threshold
-            )
-
-        # Handle Empty Results
-        if not results:
-            console.print(f"[yellow]No results found for query: '{q}'[/yellow]")
-            return
-
-        # Build Output Table
-        table = Table(title=f"Search Results: {q} ({len(results)} items)", show_lines=True)
-        
-        # Define Columns
-        table.add_column("Name", style="cyan", no_wrap=True)
-        table.add_column("Category", style="magenta")
-        table.add_column("Stars", justify="right", style="green")
-        table.add_column("Description", style="white")
-        table.add_column("Evaluation", justify="left", style="yellow")
-        table.add_column("URL", style="dim blue", overflow="fold") # Added URL column
-
+        with redirect_stdout(sys.stderr):
+            results = SkillNetClient().search(q, mode=mode, category=category, limit=limit,
+                page=page, min_stars=min_stars, sort_by=sort_by, threshold=threshold)
+    except Exception as exc:
+        _fail(exc, json_output)
+    if json_output:
+        _emit(results, True)
+    elif not results:
+        console.print("No results found.")
+    else:
+        table = Table(title="Search Results", show_lines=True)
+        for name in ("Name", "Category", "Stars", "Description", "Evaluation", "URL"):
+            table.add_column(name)
         for item in results:
-            name = item.skill_name
-            cat = item.category if item.category else "N/A"
-            stars = str(item.stars)
-            desc = item.skill_description if item.skill_description else ""
-            url = item.skill_url if item.skill_url else "N/A"
-
-            if url != "N/A":
-                url = f"[link={url}]{url}[/link]"
-
-            # Truncate long descriptions for display
-            short_desc = (desc[:100] + '...') if len(desc) > 100 else desc
-
-            eval_lines = []
-            if item.evaluation and isinstance(item.evaluation, dict):
-                metrics = {
-                    "safety": "Safety",
-                    "executability": "Executability",
-                    "completeness": "Completeness",
-                    "maintainability": "Maintainability",
-                    "cost_awareness": "Cost-Awareness"
-                }         
-                for key, display_name in metrics.items():
-                    level = item.evaluation.get(key, {}).get("level", "N/A")
-                    eval_lines.append(f"{display_name}: {level}") 
-            eval_full_str = "\n".join(eval_lines) if eval_lines else "N/A"
-            
-            # Prepare row data
-            row_data = [
-                name,
-                cat,
-                stars,
-                short_desc,
-                eval_full_str,
-                url
-            ]
-
-            table.add_row(*row_data)
-
+            ratings = "\n".join(f"{d}: {item.evaluation.get(d, {}).get('level', 'N/A')}"
+                                for d in DIMENSIONS) if item.evaluation else "N/A"
+            table.add_row(item.skill_name, item.category or "", str(item.stars),
+                          item.skill_description or "", ratings, item.skill_url or "")
         console.print(table)
-        
-        # Suggest next step
-        console.print("\n[dim]Tip: Use 'skillnet download <skill_url>' to get a skill.[/dim]")
 
-    except Exception as e:
-        console.print(f"[bold red]Error during search:[/bold red] {str(e)}")
-        # Optional: Print full traceback for debugging
-        # console.print_exception() 
-        raise typer.Exit(code=1)
+
+@app.command()
+def download(
+    url: str = typer.Argument(...),
+    target_dir: str = typer.Option(".", "--target-dir", "-d"),
+    token: Optional[str] = typer.Option(None, "--token", "-t", help="Prefer GITHUB_TOKEN over a shell argument."),
+    mirror: Optional[str] = typer.Option(None, "--mirror", "-m"),
+    overwrite: bool = typer.Option(False, "--overwrite", help="Replace an existing skill after complete download."),
+    json_output: bool = typer.Option(False, "--json"),
+):
+    """Download and structurally validate a GitHub skill folder."""
+    try:
+        with redirect_stdout(sys.stderr):
+            path = SkillNetClient(github_token=token).download(url, target_dir=target_dir,
+                                                             mirror_url=mirror, overwrite=overwrite)
+        _emit({"path": path}, json_output)
+        if not json_output:
+            console.print(f"Downloaded and structurally validated: {path}", markup=False)
+    except Exception as exc:
+        _fail(exc, json_output)
+
+
+@app.command()
+def create(
+    trajectory_file: Optional[Path] = typer.Argument(None),
+    github: Optional[str] = typer.Option(None, "--github", "-g"),
+    office: Optional[Path] = typer.Option(None, "--office", "-o"),
+    prompt: Optional[str] = typer.Option(None, "--prompt", "-p"),
+    output_dir: Path = typer.Option(Path("./generated_skills"), "--output-dir", "-d"),
+    model: Optional[str] = typer.Option(None, "--model", "-m"),
+    max_files: int = typer.Option(50, min=1),
+    auto_evaluate: bool = typer.Option(False, "--evaluate/--no-evaluate"),
+    json_mode: Optional[str] = typer.Option(None, "--json-mode", help="auto, on or off for evaluation JSON mode."),
+    json_output: bool = typer.Option(False, "--json"),
+):
+    """Create from exactly one source; optionally evaluate the resulting skills."""
+    data = {"paths": [], "validation": {}, "evaluations": {}}
+    try:
+        if sum(x is not None for x in (trajectory_file, github, office, prompt)) != 1:
+            raise ValueError("Provide exactly one source: trajectory file, --github, --office or --prompt.")
+        kwargs = {"output_dir": output_dir, "model": model, "max_files": max_files}
+        if trajectory_file is not None:
+            kwargs["trajectory_content"] = trajectory_file.read_text(encoding="utf-8")
+            if not kwargs["trajectory_content"].strip():
+                raise ValueError("Trajectory file is empty.")
+        elif github is not None:
+            kwargs["github_url"] = github
+        elif office is not None:
+            kwargs["office_file"] = str(office)
+        else:
+            kwargs["prompt"] = prompt
+        with redirect_stdout(sys.stderr):
+            client = SkillNetClient(json_mode=json_mode)
+            paths = client.create(**kwargs)
+        data["paths"] = [str(Path(p).resolve()) for p in paths]
+        if not paths:
+            raise ValueError("No skills were generated. Check the input and model response.")
+        for path in data["paths"]:
+            data["validation"][path] = validate_skill(path)
+        if any(not v["valid"] for v in data["validation"].values()):
+            raise ValueError("Generated skills failed structural validation; inspect validation errors and retained paths.")
+        if auto_evaluate:
+            for path in data["paths"]:
+                try:
+                    with redirect_stdout(sys.stderr):
+                        report = validate_evaluation(client.evaluate(path, model=model))
+                    data["evaluations"][path] = {"ok": True, "report": report, "error": None}
+                except Exception as exc:
+                    data["evaluations"][path] = {"ok": False, "report": None, "error": error_details(exc)}
+            if any(not r["ok"] for r in data["evaluations"].values()):
+                raise ValueError("Skills were created, but evaluation failed. Retry evaluation on the retained paths.")
+    except Exception as exc:
+        if not data["paths"]:
+            data["paths"] = [str(Path(p).resolve()) for p in getattr(exc, "created_paths", [])]
+        _fail(exc, json_output, data)
+    _emit(data, json_output)
+    if not json_output:
+        for path in data["paths"]:
+            console.print(f"Created and structurally validated: {path}", markup=False)
+            if path in data["evaluations"]:
+                _display_evaluation_report(path, data["evaluations"][path]["report"])
+        console.print("Model evaluation is advisory; verify the skill on a real task.")
+
+
+@app.command()
+def evaluate(
+    target: str = typer.Argument(...),
+    name: Optional[str] = typer.Option(None),
+    category: Optional[str] = typer.Option(None),
+    description: Optional[str] = typer.Option(None),
+    model: Optional[str] = typer.Option(None, "--model", "-m"),
+    max_workers: int = typer.Option(5, min=1),
+    json_mode: Optional[str] = typer.Option(None, "--json-mode"),
+    json_output: bool = typer.Option(False, "--json"),
+):
+    """Evaluate a local skill or GitHub URL through the configured model API."""
+    try:
+        with redirect_stdout(sys.stderr):
+            report = SkillNetClient(json_mode=json_mode).evaluate(target, name=name, category=category,
+                description=description, model=model, max_workers=max_workers)
+            validate_evaluation(report)
+        _emit(report, json_output)
+        if not json_output:
+            _display_evaluation_report(target, report)
+    except Exception as exc:
+        _fail(exc, json_output)
+
+
+@app.command("validate")
+def validate_command(
+    skill_dir: Path = typer.Argument(...),
+    strict: bool = typer.Option(False, "--strict", help="Also fail on portability warnings."),
+    json_output: bool = typer.Option(False, "--json"),
+):
+    """Check skill structure locally, without a model call or script execution."""
+    report = validate_skill(skill_dir)
+    if not report["valid"] or (strict and report["warnings"]):
+        _fail(ValueError("Skill validation found issues."), json_output, report)
+    _emit(report, json_output)
+    if not json_output:
+        console.print("Structure valid.")
+        for warning in report["warnings"]:
+            console.print(warning, markup=False)
+
+
+@app.command()
+def configure(
+    base_url: Optional[str] = typer.Option(None, "--base-url"),
+    model: Optional[str] = typer.Option(None, "--model"),
+    api_key_env: Optional[str] = typer.Option(None, "--api-key-env", help="Name of an environment variable, not the key."),
+    api_key_stdin: bool = typer.Option(False, "--api-key-stdin"),
+    github_token_env: Optional[str] = typer.Option(None, "--github-token-env"),
+    skillnet_api_url: Optional[str] = typer.Option(None, "--skillnet-api-url"),
+    github_mirror: Optional[str] = typer.Option(None, "--github-mirror"),
+    json_mode: Optional[str] = typer.Option(None, "--json-mode"),
+    interactive: bool = typer.Option(False, "--interactive"),
+    json_output: bool = typer.Option(False, "--json"),
+):
+    """Save optional user settings; prompts only with --interactive."""
+    try:
+        if api_key_env and api_key_stdin:
+            raise ValueError("Choose --api-key-env or --api-key-stdin, not both.")
+        updates = {k: v for k, v in {"base_url": base_url, "model": model,
+            "skillnet_api_url": skillnet_api_url, "github_mirror": github_mirror,
+            "json_mode": json_mode}.items() if v is not None}
+        for field, env in (("api_key", api_key_env), ("github_token", github_token_env)):
+            if env is not None:
+                if not os.environ.get(env):
+                    raise ValueError(f"Environment variable {env} is empty or absent.")
+                updates[field] = os.environ[env]
+        if api_key_stdin:
+            key = sys.stdin.readline().strip()
+            if not key:
+                raise ValueError("No API key supplied on stdin.")
+            updates["api_key"] = key
+        if interactive:
+            if not sys.stdin.isatty():
+                raise ValueError("Interactive setup requires a terminal. Use flags, environment variables or stdin.")
+            settings = resolve_settings(**updates)
+            with redirect_stdout(sys.stderr):
+                updates["base_url"] = input(f"Model API base URL [{settings.base_url}]: ").strip() or settings.base_url
+                updates["model"] = input(f"Model [{settings.model}]: ").strip() or settings.model
+                key_prompt = "API key (Enter to keep existing): " if settings.api_key else "API key (saved in your user config): "
+                key = getpass.getpass(key_prompt).strip()
+                if key:
+                    updates["api_key"] = key
+                elif not settings.api_key:
+                    raise ValueError("API key is empty; configuration was not saved.")
+        if not updates:
+            raise ValueError("Provide configuration flags or run skillnet configure --interactive in a terminal.")
+        path = save_config(updates)
+        _emit({"path": str(path), "updated": sorted(updates)}, json_output)
+        if not json_output:
+            console.print(f"Saved user configuration: {path}", markup=False)
+    except Exception as exc:
+        _fail(exc, json_output)
+
+
+@app.command()
+def doctor(
+    check_network: bool = typer.Option(False, "--check-network"),
+    check_llm: bool = typer.Option(False, "--check-llm", help="Send one small potentially billable model request."),
+    json_output: bool = typer.Option(False, "--json"),
+):
+    """Inspect local setup. Network and LLM checks are opt-in."""
+    data = {}
+    try:
+        settings = resolve_settings()
+        data = {"version": version("skillnet-ai"), "python": sys.executable,
+                "cli": shutil.which("skillnet"), "config_path": str(config_path()),
+                "settings": settings.public(), "checks": {},
+                "missing_for_create_evaluate": [] if settings.api_key else ["API_KEY"],
+                "hint": "Run configure for missing model settings. Search/public download need no LLM key."}
+        with redirect_stdout(sys.stderr):
+            if check_network:
+                SkillNetClient().search("pdf", limit=1)
+                data["checks"]["search"] = "passed"
+                response = requests.get("https://api.github.com/rate_limit", timeout=15)
+                response.raise_for_status()
+                data["checks"]["github"] = "passed"
+            if check_llm:
+                if not settings.api_key:
+                    raise ValueError("API_KEY is required for --check-llm.")
+                from openai import OpenAI
+                from skillnet_ai.llm import chat_completion
+                response = chat_completion(OpenAI(api_key=settings.api_key, base_url=settings.base_url,
+                    timeout=30, max_retries=0), model=settings.model,
+                    messages=[{"role": "user", "content": "Reply with OK only."}])
+                if not response.choices or not response.choices[0].message.content:
+                    raise ValueError("Model returned no content.")
+                data["checks"]["llm"] = "passed"
+        _emit(data, json_output)
+        if not json_output:
+            console.print_json(data=data)
+    except Exception as exc:
+        _fail(exc, json_output, data)
 
 
 @app.command()
 def orchestrate(
     q: str = typer.Argument(..., help="The user task query to orchestrate."),
     scene: str = typer.Option("sciatlas", "--scene", help="Preset scene name."),
-    model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="Claude Agent SDK model to use."),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="Claude Agent SDK model to use."),
     timeout: float = typer.Option(DEFAULT_ORCHESTRATION_TIMEOUT, "--timeout", help="Per-stage orchestration timeout in seconds."),
     json_output: bool = typer.Option(False, "--json/--no-json", help="Print raw JSON instead of a Rich summary."),
 ):
     """
     Recommend scene skills and generate a downstream execution prompt.
     """
+    settings = resolve_settings(model=model)
+    API_KEY, BASE_URL, model = settings.api_key, settings.base_url, settings.model
     if not API_KEY:
         console.print("[bold red]Error:[/bold red] API_KEY environment variable is not set.")
         raise typer.Exit(code=1)
@@ -190,363 +381,6 @@ def orchestrate(
         console.print(f"[bold red]Orchestration Failed:[/bold red] {str(e)}")
         raise typer.Exit(code=1)
 
-@app.command()
-def download(
-    url: str = typer.Argument(..., help="The GitHub URL of the specific skill folder (e.g., https://github.com/owner/repo/tree/main/skills/math_solver)."),
-    target_dir: str = typer.Option(".", "--target-dir", "-d", help="Local directory to install the skill into."),
-    token: str = typer.Option(None, "--token", "-t", envvar="GITHUB_TOKEN", help="GitHub Personal Access Token (for private repos or higher rate limits)."),
-    mirror: str = typer.Option(None, "--mirror", "-m", help="Mirror URL for fallback when GitHub is slow/unavailable (e.g. https://ghfast.top/). Also reads GITHUB_MIRROR env var."),
-):
-    """
-    Download and install a specific skill directly from a GitHub repository subdirectory.
-    """
-    # 1. Initialize Downloader
-    # Checks CLI option first, then environment variable GITHUB_TOKEN
-    downloader = SkillDownloader(api_token=token, mirror_url=mirror)
-
-    try:
-        # 2. Visual Feedback
-        console.print(f"[dim]Target directory: {os.path.abspath(target_dir)}[/dim]")
-        
-        with console.status(f"[bold green]Downloading skill from GitHub...[/bold green]", spinner="dots"):
-            installed_path = downloader.download(folder_url=url, target_dir=target_dir)
-
-        # 3. Handle Results
-        if installed_path:
-            # Success
-            folder_name = os.path.basename(installed_path)
-            
-            table = Table(title="Installation Successful", show_header=False, box=None)
-            table.add_row("[bold cyan]Skill:[/bold cyan]", folder_name)
-            table.add_row("[bold cyan]Location:[/bold cyan]", installed_path)
-            
-            console.print(table)
-            console.print(f"\n[green]✅ {folder_name} is ready to use.[/green]")
-        else:
-            # Generic Failure (e.g., no files found, URL invalid)
-            console.print("[bold red]❌ Download Failed: Could not process the files.[/bold red]")
-            raise typer.Exit(code=1)
-
-    except GitHubAPIError as e:
-        # 4. Handle Specific GitHub API Errors with actionable UI feedback
-        console.print(f"[bold red]❌ GitHub API Error [{e.status_code}]:[/bold red] {e.message}")
-        
-        # Provide smart hints based on the status code
-        if e.status_code == 403:
-            console.print("\n[yellow]💡 Tip: You may have hit the GitHub API rate limit. Please provide a GitHub Personal Access Token (using the --token flag).[/yellow]")
-        elif e.status_code == 404:
-            console.print("\n[yellow]💡 Tip: The path does not exist, or this is a private repository (requires a --token to access).[/yellow]")
-            
-        raise typer.Exit(code=1)
-
-    except Exception as e:
-        # 5. Handle unexpected exceptions
-        console.print(f"[bold red]An unexpected error occurred:[/bold red] {str(e)}")
-        raise typer.Exit(code=1)
-
-@app.command()
-def create(
-    # Input sources (mutually exclusive)
-    trajectory_file: Path = typer.Argument(None, exists=True, readable=True, help="Path to trajectory/log file."),
-    github: str = typer.Option(None, "--github", "-g", help="GitHub repository URL (e.g., https://github.com/owner/repo)."),
-    office: Path = typer.Option(None, "--office", "-o", exists=True, readable=True, help="Path to office document (PDF, PPT, Word)."),
-    prompt: str = typer.Option(None, "--prompt", "-p", help="Direct description to generate skill from."),
-    # Output options
-    output_dir: Path = typer.Option(Path("./generated_skills"), "--output-dir", "-d", help="Directory to save generated skills."),
-    # Model options
-    model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="LLM model to use (e.g., gpt-4o, gpt-3.5-turbo)."),
-    max_files: int = typer.Option(50, "--max-files", help="Max code files to analyze (--github only)."),
-):
-    """
-    Create executable Skill packages using AI.
-    
-    Supports four modes:
-    - From trajectory: skillnet create trajectory.txt
-    - From GitHub: skillnet create --github https://github.com/owner/repo
-    - From Office doc: skillnet create --office document.pdf
-    - From prompt: skillnet create --prompt "Create a skill for..."
-    """
-    # 1. Validate Environment
-    if not API_KEY:
-        console.print("[bold red]Error:[/bold red] API_KEY environment variable is not set.")
-        console.print("Please export API_KEY or set it in your environment.")
-        raise typer.Exit(code=1)
-
-    # 2. Determine mode based on provided options
-    mode_count = sum([
-        bool(github),
-        bool(trajectory_file),
-        bool(office),
-        bool(prompt)
-    ])
-    
-    if mode_count == 0:
-        console.print("[bold red]Error:[/bold red] Must specify one input source.")
-        console.print("\nUsage examples:")
-        console.print("  skillnet create trajectory.txt")
-        console.print("  skillnet create --github https://github.com/owner/repo")
-        console.print("  skillnet create --office document.pdf")
-        console.print('  skillnet create --prompt "Create a skill for web scraping"')
-        raise typer.Exit(code=1)
-    
-    if mode_count > 1:
-        console.print("[bold red]Error:[/bold red] Only one input source can be specified at a time.")
-        raise typer.Exit(code=1)
-
-    # 3. Route to appropriate handler
-    if github:
-        _create_from_github(github, output_dir, model, max_files)
-    elif trajectory_file:
-        _create_from_trajectory(trajectory_file, output_dir, model)
-    elif office:
-        _create_from_office(office, output_dir, model)
-    elif prompt:
-        _create_from_prompt(prompt, output_dir, model)
-
-
-def _create_from_trajectory(trajectory_file: Path, output_dir: Path, model: str):
-    """Internal function to create skill from trajectory file."""
-    try:
-        # Read Trajectory Content
-        console.print(f"[dim]Reading trajectory from: {trajectory_file}[/dim]")
-        with open(trajectory_file, "r", encoding="utf-8") as f:
-            trajectory_content = f.read()
-
-        if not trajectory_content.strip():
-            console.print("[bold red]Error:[/bold red] Trajectory file is empty.")
-            raise typer.Exit(code=1)
-
-        # Initialize Creator
-        creator = SkillCreator(
-            api_key=API_KEY, 
-            base_url=BASE_URL, 
-            model=model
-        )
-
-        # Run Generation with Spinner
-        with console.status("[bold green]AI is analyzing trajectory and generating skills...[/bold green]", spinner="dots"):
-            created_paths = creator.create_from_trajectory(
-                trajectory=trajectory_content,
-                output_dir=str(output_dir)
-            )
-
-        # Report Results
-        if created_paths:
-            console.print(f"\n[bold green]Success! Generated {len(created_paths)} skill(s):[/bold green]")
-            
-            table = Table(show_header=True, header_style="bold magenta")
-            table.add_column("Skill Name", style="cyan")
-            table.add_column("Location", style="white")
-
-            for path in created_paths:
-                skill_name = os.path.basename(path)
-                table.add_row(skill_name, str(path))
-            
-            console.print(table)
-            console.print(f"\n[dim]Files saved to: {os.path.abspath(output_dir)}[/dim]")
-        else:
-            console.print("\n[yellow]Analysis complete, but no clear skills were identified in this trajectory.[/yellow]")
-
-    except Exception as e:
-        console.print(f"\n[bold red]Creation Failed:[/bold red] {str(e)}")
-        raise typer.Exit(code=1)
-
-
-def _create_from_github(github_url: str, output_dir: Path, model: str, max_files: int):
-    """Internal function to create skill from GitHub repository."""
-    try:
-        console.print(f"[dim]Creating skill from GitHub: {github_url}[/dim]")
-
-        # Initialize Creator
-        creator = SkillCreator(
-            api_key=API_KEY,
-            base_url=BASE_URL,
-            model=model
-        )
-
-        # Run Generation with Spinner
-        with console.status("[bold green]Fetching repository and generating skill...[/bold green]", spinner="dots"):
-            created_paths = creator.create_from_github(
-                github_url=github_url,
-                output_dir=str(output_dir),
-                api_token=os.getenv("GITHUB_TOKEN"),
-                max_files=max_files
-            )
-
-        # Report Results
-        if created_paths:
-            console.print(f"\n[bold green]Success! Generated {len(created_paths)} skill(s) from GitHub:[/bold green]")
-            
-            table = Table(show_header=True, header_style="bold magenta")
-            table.add_column("Skill Name", style="cyan")
-            table.add_column("Location", style="white")
-
-            for path in created_paths:
-                skill_name = os.path.basename(path)
-                table.add_row(skill_name, str(path))
-            
-            console.print(table)
-            console.print(f"\n[dim]Files saved to: {os.path.abspath(output_dir)}[/dim]")
-            console.print("\n[dim]Tip: Use 'skillnet evaluate <skill_path>' to evaluate the generated skill.[/dim]")
-        else:
-            console.print("\n[yellow]Failed to generate skill from the GitHub repository.[/yellow]")
-
-    except Exception as e:
-        console.print(f"\n[bold red]GitHub Skill Creation Failed:[/bold red] {str(e)}")
-        raise typer.Exit(code=1)
-
-
-def _create_from_office(office_file: Path, output_dir: Path, model: str):
-    """Internal function to create skill from office document."""
-    try:
-        console.print(f"[dim]Creating skill from office document: {office_file}[/dim]")
-
-        # Initialize Creator
-        creator = SkillCreator(
-            api_key=API_KEY,
-            base_url=BASE_URL,
-            model=model
-        )
-
-        # Run Generation with Spinner
-        with console.status("[bold green]Extracting content and generating skill...[/bold green]", spinner="dots"):
-            created_paths = creator.create_from_office(
-                file_path=str(office_file),
-                output_dir=str(output_dir)
-            )
-
-        # Report Results
-        if created_paths:
-            console.print(f"\n[bold green]Success! Generated {len(created_paths)} skill(s) from document:[/bold green]")
-            
-            table = Table(show_header=True, header_style="bold magenta")
-            table.add_column("Skill Name", style="cyan")
-            table.add_column("Location", style="white")
-
-            for path in created_paths:
-                skill_name = os.path.basename(path)
-                table.add_row(skill_name, str(path))
-            
-            console.print(table)
-            console.print(f"\n[dim]Files saved to: {os.path.abspath(output_dir)}[/dim]")
-            console.print("\n[dim]Tip: Use 'skillnet evaluate <skill_path>' to evaluate the generated skill.[/dim]")
-        else:
-            console.print("\n[yellow]Failed to generate skill from the document.[/yellow]")
-
-    except ImportError as e:
-        console.print(f"\n[bold red]Missing Dependency:[/bold red] {str(e)}")
-        console.print("\n[dim]Install office document support with:[/dim]")
-        console.print("  pip install PyPDF2 pycryptodome python-docx python-pptx")
-        raise typer.Exit(code=1)
-    except Exception as e:
-        console.print(f"\n[bold red]Office Skill Creation Failed:[/bold red] {str(e)}")
-        raise typer.Exit(code=1)
-
-
-def _create_from_prompt(user_prompt: str, output_dir: Path, model: str):
-    """Internal function to create skill from user's prompt description."""
-    try:
-        console.print(f"[dim]Creating skill from user prompt...[/dim]")
-
-        # Initialize Creator
-        creator = SkillCreator(
-            api_key=API_KEY,
-            base_url=BASE_URL,
-            model=model
-        )
-
-        # Run Generation with Spinner
-        with console.status("[bold green]AI is generating your custom skill...[/bold green]", spinner="dots"):
-            created_paths = creator.create_from_prompt(
-                user_input=user_prompt,
-                output_dir=str(output_dir)
-            )
-
-        # Report Results
-        if created_paths:
-            console.print(f"\n[bold green]Success! Generated {len(created_paths)} skill(s) from your description:[/bold green]")
-            
-            table = Table(show_header=True, header_style="bold magenta")
-            table.add_column("Skill Name", style="cyan")
-            table.add_column("Location", style="white")
-
-            for path in created_paths:
-                skill_name = os.path.basename(path)
-                table.add_row(skill_name, str(path))
-            
-            console.print(table)
-            console.print(f"\n[dim]Files saved to: {os.path.abspath(output_dir)}[/dim]")
-            console.print("\n[dim]Tip: Use 'skillnet evaluate <skill_path>' to evaluate the generated skill.[/dim]")
-        else:
-            console.print("\n[yellow]Failed to generate skill from your description.[/yellow]")
-
-    except Exception as e:
-        console.print(f"\n[bold red]Prompt-based Skill Creation Failed:[/bold red] {str(e)}")
-        raise typer.Exit(code=1)
-
-
-@app.command()
-def evaluate(
-    target: str = typer.Argument(..., help="Path to a local skill directory OR a GitHub URL."),
-    
-    # Optional metadata overrides (useful if not auto-detected)
-    name: str = typer.Option(None, help="Name of the skill (overrides auto-detection)."),
-    category: str = typer.Option(None, help="Category of the skill (e.g., 'Data Analysis')."),
-    description: str = typer.Option(None, help="Short description of what the skill does."),
-    
-    # Config options
-    model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="LLM model to use."),
-    max_workers: int = typer.Option(5, help="Concurrency for batch operations (not used for single eval)."),
-):
-    """
-    Evaluate the quality, safety, and completeness of a skill using AI.
-    
-    Target can be a local folder path or a GitHub URL (e.g., https://github.com/user/repo/tree/main/skill).
-    """
-    # 1. Validate Environment
-    if not API_KEY:
-        console.print("[bold red]Error:[/bold red] API_KEY environment variable is not set.")
-        raise typer.Exit(code=1)
-
-    # 2. Configure Evaluator
-    config = EvaluatorConfig(
-        api_key=API_KEY,
-        base_url=BASE_URL,
-        model=model,
-        max_workers=max_workers
-    )
-    evaluator = SkillEvaluator(config)
-
-    try:
-        # 3. Determine Mode (URL vs Local Path) and Run Evaluation
-        is_url = target.startswith("http://") or target.startswith("https://")
-        
-        with console.status(f"[bold green]Evaluating skill ({'Remote' if is_url else 'Local'})...[/bold green]", spinner="dots"):
-            if is_url:
-                result = evaluator.evaluate_from_url(
-                    url=target, 
-                    name=name, 
-                    category=category, 
-                    description=description
-                )
-            else:
-                result = evaluator.evaluate_from_path(
-                    path=target, 
-                    name=name, 
-                    category=category, 
-                    description=description
-                )
-
-        # 4. Display Results
-        if "error" in result:
-            console.print(f"[bold red]Evaluation Failed:[/bold red] {result['error']}")
-            raise typer.Exit(code=1)
-
-        _display_evaluation_report(target, result)
-
-    except Exception as e:
-        console.print(f"[bold red]An unexpected error occurred:[/bold red] {str(e)}")
-        raise typer.Exit(code=1)
 
 def _display_evaluation_report(target_name: str, data: dict):
     """Helper to render the JSON evaluation result into a nice Rich UI."""
@@ -585,11 +419,12 @@ def _display_evaluation_report(target_name: str, data: dict):
     if summary:
         console.print(Panel(summary, title="Executive Summary", border_style="cyan"))
 
+
 @app.command()
 def analyze(
     skills_dir: Path = typer.Argument(..., exists=True, file_okay=False, help="Directory containing multiple skill folders to analyze."),
     save: bool = typer.Option(True, "--save/--no-save", help="Save analysis artifacts."),
-    model: str = typer.Option(DEFAULT_MODEL, "--model", "-m", help="LLM model to use."),
+    model: Optional[str] = typer.Option(None, "--model", "-m", help="LLM model to use."),
     mode: AnalyzeMode = typer.Option(AnalyzeMode.basic, "--mode", help="Analyze mode."),
     embedding_api_key: Optional[str] = typer.Option(None, "--embedding-api-key", envvar="EMBEDDING_API_KEY", help="Embedding API key for scenario mode."),
     embedding_base_url: Optional[str] = typer.Option(None, "--embedding-base-url", envvar="EMBEDDING_BASE_URL", help="OpenAI-compatible embedding API base URL for scenario mode."),
@@ -607,6 +442,8 @@ def analyze(
     scenario mode builds a scenario-level workflow graph for local skills.
     """
     # 1. Validate Environment
+    settings = resolve_settings(model=model)
+    API_KEY, BASE_URL, model = settings.api_key, settings.base_url, settings.model
     if not API_KEY:
         console.print("[bold red]Error:[/bold red] API_KEY environment variable is not set.")
         raise typer.Exit(code=1)
@@ -757,6 +594,7 @@ def analyze(
     except Exception as e:
         console.print(f"\n[bold red]Analysis Failed:[/bold red] {str(e)}")
         raise typer.Exit(code=1)
+
 
 if __name__ == "__main__":
     app()
