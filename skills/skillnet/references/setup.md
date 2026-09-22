@@ -2,12 +2,12 @@
 
 ## Reuse an existing installation
 
-Run `skillnet --version`. This skill requires **skillnet-ai 0.1.1+**. If it works,
+Run `skillnet --version`. This skill requires **skillnet-ai 0.2.0+**. If it works,
 keep using that command: a pipx installation does not imply that another `python`
 interpreter can import the package. Legacy scripts in this skill resolve the CLI
 first and use their own Python only when it contains the SDK.
 
-Version 0.1.1 is the release candidate accompanying this source tree. Before its
+Version 0.2.0 is the release candidate accompanying this source tree. Before its
 PyPI publication, install from the reviewed SkillNet checkout. Do not repeatedly
 try to install an unavailable release.
 
@@ -32,8 +32,8 @@ py -3 -m venv "$env:USERPROFILE\.skillnet\venv"
 & "$env:USERPROFILE\.skillnet\venv\Scripts\python.exe" -m skillnet_ai --version
 ```
 
-After 0.1.1 is published, the install source can be replaced by
-`"skillnet-ai>=0.1.1"`. Existing pipx/uv users can upgrade with their existing tool.
+After 0.2.0 is published, the install source can be replaced by
+`"skillnet-ai>=0.2.0"`. Existing pipx/uv users can upgrade with their existing tool.
 When the CLI is not on the agent's PATH, use the full virtualenv Python path plus
 `-m skillnet_ai` in place of `skillnet` in subsequent examples. Activation is not
 required. For Linux, use the macOS Python commands.
@@ -102,5 +102,5 @@ model configuration. A successful probe proves connectivity, not evaluation sche
 support or generated-skill quality. A missing model key does not block search.
 
 DeepSeek、智谱 Coding Plan 和其他兼容服务使用相同三项配置。套餐端点可能不同于
-普通 API 端点，以服务商文档和账户权限为准。配置能力与已经实测的服务商是两回事；
-完整实测状态见 SDK 的 `acceptance/README.md`。宿主 agent 的登录状态不是模型 API Key。
+普通 API 端点，以服务商文档和账户权限为准。配置能力不代表该渠道已经通过实测。
+宿主 agent 的登录状态不是模型 API Key。

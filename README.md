@@ -5,7 +5,7 @@
 
 # SkillNet
 
-**Open infrastructure for discovering, evaluating, composing, and orchestrating reusable AI agent skills.**
+**Open infrastructure for discovering, evaluating, composing, and routing reusable AI agent skills.**
 
 <p>
 SkillNet treats agent skills as software assets: searchable, installable, inspectable, evaluable, and composable.
@@ -35,9 +35,9 @@ Agents should not rebuild the same capability from scratch every time. SkillNet 
 - **Creation:** generate structured skills from repositories, documents, prompts, or execution traces.
 - **Evaluation:** score skills for safety, completeness, executability, maintainability, and cost awareness.
 - **Composition:** infer relationships and scenario handoffs between local skills.
-- **Orchestration:** select scene-specific skills and generate a prompt for a downstream execution agent.
+- **Routing:** select skills for a task from your local library, with source evidence and coverage gaps.
 
-Search and public skill installation are credential-free. Create, evaluate, and analyze work with OpenAI-compatible endpoints. Orchestration runs through Claude Agent SDK and requires a compatible gateway configured with the same `API_KEY`, `BASE_URL`, and `SKILLNET_MODEL` variables.
+Search and public skill installation are credential-free. Create, evaluate, and analyze work with OpenAI-compatible endpoints. Local routing uses an independently configured Claude or Codex Agent SDK plus an embedding endpoint.
 
 ---
 
@@ -94,8 +94,8 @@ No API key is required for search or public GitHub downloads.
 | Skill library | Search and download | Reuse existing agent skills instead of rebuilding them |
 | Skill authoring | Create | Turn traces, prompts, repositories, and documents into portable skill packages |
 | Skill quality | Evaluate | Compare skill readiness before putting it in an agent workflow |
-| Skill graph | Analyze | Discover `compose_with`, `depend_on`, and scenario-level handoff relationships |
-| Orchestration | Orchestrate | Pick skills for a task in a curated scene and return an execution-ready prompt |
+| Skill graph | Analyze | Build a reusable scenario graph with directed `compose_with` and undirected `similar_to` relationships |
+| Skill routing | Route | Explore a task Wiki over your local library and return up to k skills with source evidence |
 | Integrations | Agent skills, MCP, OpenClaw, JiuwenClaw | Use SkillNet inside existing agent runtimes |
 
 ---
@@ -129,6 +129,10 @@ https://github.com/user-attachments/assets/9f9d35b0-36fd-4d7d-a072-39afa380b241
 
 ## Python SDK
 
+The analyze/route APIs below require the 0.2.0 source tree. Until it is published,
+install this checkout with `pip install -e "./skillnet-ai[graph,claude]"`.
+
+
 ### Install
 
 ```bash
@@ -139,7 +143,7 @@ Optional extras:
 
 ```bash
 pip install "skillnet-ai[graph]"        # scenario-level graph analysis
-pip install "skillnet-ai[orchestrate]"  # scene orchestration
+pip install "skillnet-ai[graph,claude]"  # local skill routing
 ```
 
 ### Initialize
@@ -148,7 +152,7 @@ pip install "skillnet-ai[orchestrate]"  # scene orchestration
 from skillnet_ai import SkillNetClient
 
 client = SkillNetClient(
-    api_key="your-api-key",       # required for create, evaluate, analyze, orchestrate
+    api_key="your-api-key",       # required for create, evaluate, analyze
     base_url="https://api.openai.com/v1",
     github_token=None,            # optional, for private repos or higher GitHub rate limits
 )
@@ -203,59 +207,35 @@ client.create(
 
 ```python
 report = client.evaluate("./my_skills/table-extractor")
-print(report["overall_score"])
-print(report["summary"])
+print(report["safety"]["level"], report["safety"]["reason"])
+print(report["maintainability"]["level"], report["maintainability"]["reason"])
 ```
 
-### Analyze
+### Analyze and route local skills
 
-Basic relationship analysis:
-
-```python
-relationships = client.analyze("./my_skills")
-
-for rel in relationships:
-    print(f"{rel['source']} --[{rel['type']}]--> {rel['target']}")
-```
-
-Scenario graph analysis:
+`analyze` builds a reusable scenario graph, retrieval index and Wiki from local skill
+folders. `route` retrieves a task-specific subgraph and uses a configured Claude or
+Codex Agent SDK to read source evidence and select up to `k` skills.
 
 ```python
-graph = client.analyze(
-    "./my_skills",
-    mode="scenario",
-    embedding_api_key="your-embedding-api-key",
-    embedding_base_url="https://embedding.example/v1",
-    embedding_model="your-embedding-model",
-    output_dir="./my_skills/skillnet_graph",
-    timeout=120,
+analysis = client.analyze("./my_skills", output_dir="./skillnet_index")
+result = client.route(
+    "Compute statistics from my existing CSV tables",
+    index_dir=analysis.index_dir,
+    k=5,
 )
-
-print(graph["scenario_skill_graph"]["edges"])
+for skill in result.skills:
+    print(skill.name, skill.path, skill.reason)
+print(result.coverage_gaps)
 ```
 
-### Orchestrate
+The graph has two relations: directed `compose_with` for scenario-supported
+combinations, and undirected `similar_to` for comparable capabilities. Relations
+suggest candidates; they do not force co-selection. Routing returns skills and
+source evidence without generating an execution prompt.
 
-`orchestrate` requires `API_KEY`. It selects skills for a preset scene and returns a skill collection URL, selected skill names, and a downstream agent prompt. The first release supports `scene="sciatlas"`.
-Its `BASE_URL` must support Claude Agent SDK requests; an OpenAI-only endpoint is not sufficient.
-
-```bash
-pip install "skillnet-ai[orchestrate]"
-```
-
-```python
-result = client.orchestrate(
-    "Find recent papers on retrieval-augmented generation and propose three follow-up ideas.",
-    scene="sciatlas",
-    timeout=240,
-)
-
-print(result.package_url)
-print([skill.name for skill in result.skills])
-print(result.prompt)
-```
-
----
+Analysis, embeddings and Explorer SDKs have separate endpoint settings. See
+[analysis and routing](skillnet-ai/README.md#analyze-and-route-local-skills) for installation, configuration, options and migration.
 
 ## CLI
 
@@ -268,7 +248,7 @@ The CLI ships with `skillnet-ai`.
 | `create` | Create a skill package | `skillnet create --prompt "A skill for table extraction"` |
 | `evaluate` | Evaluate a local or remote skill | `skillnet evaluate ./my_skill` |
 | `analyze` | Analyze local skill relationships | `skillnet analyze ./my_skills` |
-| `orchestrate` | Build a scene skill handoff | `skillnet orchestrate "search papers about RAG"` |
+| `route` | Select local skills for a task | `skillnet route "analyze my CSV" --index-dir ./skillnet_index` |
 
 Use `skillnet <command> --help` for full options.
 
@@ -286,45 +266,29 @@ skillnet evaluate ./my_skills/table_extractor
 skillnet analyze ./my_skills
 ```
 
-Scenario graph analysis:
+### Analyze and route
 
 ```bash
-pip install "skillnet-ai[graph]"
-
-skillnet analyze ./my_skills --mode scenario \
-  --embedding-api-key "$EMBEDDING_API_KEY" \
-  --embedding-base-url "$EMBEDDING_BASE_URL" \
-  --embedding-model "$EMBEDDING_MODEL" \
-  --output-dir ./my_skills/skillnet_graph \
-  --timeout 120
+skillnet analyze ./my_skills --output-dir ./skillnet_index --json
+skillnet route "Compute statistics from my CSV" --index-dir ./skillnet_index --k 5 --json
 ```
-
-### Orchestrate
-
-```bash
-pip install "skillnet-ai[orchestrate]"
-
-skillnet orchestrate "Find recent RAG papers and propose three follow-up ideas" \
-  --scene sciatlas \
-  --timeout 240
-```
-
-The command returns the SciAtlas skill collection URL, selected skills, and a downstream agent prompt. Use `--json` for machine-readable output.
-
----
 
 ## Configuration
 
 | Variable | Required for | Default |
 | :-- | :-- | :-- |
-| `API_KEY` | `create`, `evaluate`, `analyze`, `orchestrate` | unset |
-| `BASE_URL` | Custom LLM endpoint; orchestration requires a Claude Agent SDK-compatible gateway | `https://api.openai.com/v1` |
+| `API_KEY` | `create`, `evaluate`, `analyze` | unset |
+| `BASE_URL` | Chat Completions endpoint for create, evaluate and analyze | `https://api.openai.com/v1` |
 | `SKILLNET_MODEL` | Default LLM model | `gpt-4o` |
 | `GITHUB_TOKEN` | Private repos or higher GitHub rate limits | unset |
 | `GITHUB_MIRROR` | GitHub download mirror | unset |
-| `EMBEDDING_API_KEY` | `analyze --mode scenario` | unset |
-| `EMBEDDING_BASE_URL` | `analyze --mode scenario` | unset |
-| `EMBEDDING_MODEL` | `analyze --mode scenario` | unset |
+| `EMBEDDING_API_KEY` | `analyze` and `route` | unset |
+| `EMBEDDING_BASE_URL` | `analyze` and `route` | unset |
+| `EMBEDDING_MODEL` | `analyze` and `route` | unset |
+| `SKILLNET_EXPLORER_BACKEND` | `route`: claude or codex | `claude` |
+| `SKILLNET_EXPLORER_API_KEY` | `route` SDK credential | unset |
+| `SKILLNET_EXPLORER_BASE_URL` | `route` SDK-compatible base URL | unset |
+| `SKILLNET_EXPLORER_MODEL` | `route` SDK model | unset |
 
 Linux and macOS:
 
@@ -383,9 +347,8 @@ and WorkBuddy with one complete skill directory.
 
 - [Installation and API configuration / 安装与 API 配置](skills/skillnet/references/setup.md)
 - [Agent directories and WorkBuddy import](skills/skillnet/references/platforms.md)
-- [Compatibility checks and current validation status](skillnet-ai/acceptance/README.md)
 
-The revised skill requires the accompanying **skillnet-ai 0.1.1 release candidate**.
+The revised skill requires the accompanying **skillnet-ai 0.2.0 source release**.
 Before its PyPI release, install from this checkout with `python -m pip install ./skillnet-ai`.
 Existing environment variables continue to work. Optional `skillnet configure`
 saves user settings shared across agents; `skillnet doctor --json` reports their
@@ -456,7 +419,7 @@ python webshop_run.py --model o4-mini --max_workers 3 --exp_name web_test --use_
 
 ## Roadmap
 
-- Broader scene orchestration beyond SciAtlas.
+- Broader evaluation of task routing across local skill libraries.
 - More curated skill collections and routing wikis.
 - Stronger skill evaluation and regression testing.
 - SkillFabric workflow substrates for routing across skill collections.

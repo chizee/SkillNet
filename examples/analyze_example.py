@@ -1,15 +1,18 @@
 """
 Skill Relationship Analysis Example - Using SkillNetClient
+
+Requires skillnet-ai[graph] and configured analysis and embedding endpoints.
 """
+import json
 import os
 import shutil
-from typing import List, Dict
+
 from skillnet_ai import SkillNetClient
 
 # Define directory for demonstration
 DEMO_SKILLS_DIR = "./demo_skills_library"
 
-def setup_demo_environment():
+def setup_demo_environment() -> None:
     """
     Helper to create a few dummy skills locally so the analyzer has something to scan.
     In a real scenario, you would point this to your actual skills directory.
@@ -65,7 +68,7 @@ def setup_demo_environment():
     print(f"📦 Created {len(dummy_skills)} dummy skills in '{DEMO_SKILLS_DIR}' for analysis.")
 
 
-def main():
+def main() -> None:
     # 1. Setup demo data (Optional: remove if you have your own skills folder)
     setup_demo_environment()
 
@@ -78,11 +81,10 @@ def main():
     # 3. Run Analysis
     print("\n🚀 Analyzing relationships between skills...")
     try:
-        relationships = client.analyze(
-            skills_dir=DEMO_SKILLS_DIR,
-            save_to_file=True,
-            model="gpt-4o"
-        )
+        analysis = client.analyze(skills_dir=DEMO_SKILLS_DIR)
+        snapshot_name = (analysis.index_dir / "CURRENT").read_text(encoding="utf-8").strip()
+        graph_path = analysis.index_dir / snapshot_name / "graph.json"
+        relationships = json.loads(graph_path.read_text(encoding="utf-8"))["relations"]
 
         # 4. Display Results
         if not relationships:
@@ -99,11 +101,11 @@ def main():
             source = relationship.get('source', 'N/A')
             rtype = relationship.get('type', 'N/A')
             target = relationship.get('target', 'N/A')
-            reason = relationship.get('reason', '')[:40] + "..." # Truncate for display
+            reason = relationship['contexts'][0]['explanation'][:40] + "..."
 
             print(f"{source:<20} | {rtype:<15} | {target:<20} | {reason}")
 
-        print(f"\n💾 relationships saved to: {os.path.join(DEMO_SKILLS_DIR, 'relationships.json')}")
+        print(f"\n💾 relationships saved to: {graph_path}")
 
     except Exception as e:
         print(f"❌ Analysis failed: {e}")

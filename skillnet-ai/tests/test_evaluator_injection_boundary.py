@@ -16,7 +16,7 @@ from skillnet_ai.evaluator import (
     SkillEvaluator,
     SkillLoader,
 )
-from skillnet_ai.injection import (
+from skillnet_ai.core.injection import (
     InjectionFinding,
     InjectionReport,
     InjectionScanIssue,

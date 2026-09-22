@@ -19,16 +19,15 @@ from json_repair import repair_json
 from tqdm import tqdm
 
 from skillnet_ai.downloader import SkillDownloader
-from skillnet_ai.llm import chat_completion
-from skillnet_ai.validation import validate_evaluation
-from skillnet_ai.errors import error_details
-from skillnet_ai.injection import (
+from skillnet_ai.core.llm import chat_completion, error_details
+from skillnet_ai.core.validation import validate_evaluation
+from skillnet_ai.core.injection import (
     InjectionContent,
     InjectionReport,
     InjectionScanIssue,
     SkillInjectionScanner,
 )
-from skillnet_ai.prompts import SKILL_EVALUATION_PROMPT
+from skillnet_ai.core.prompts import EVALUATION_SYSTEM_PROMPT, SKILL_EVALUATION_PROMPT
 
 logger = logging.getLogger(__name__)
 
@@ -947,10 +946,7 @@ class LLMClient:
             {
                 "role": "system",
                 "content": (
-                    "You are an expert evaluator of AI Agent Skills. "
-                    "Follow the JSON schema and constraints exactly. "
-                    "Use ONLY the provided metadata, SKILL.md, reference files, and scripts snippets. "
-                    "Return ONLY a valid JSON object. Do not include markdown, explanations, or extra text."
+                    EVALUATION_SYSTEM_PROMPT
                 )
             },
             {"role": "user", "content": prompt}

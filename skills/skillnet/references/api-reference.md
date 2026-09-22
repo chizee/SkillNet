@@ -1,11 +1,11 @@
 # CLI and SDK reference
 
-Requires skillnet-ai 0.1.1+. Run `skillnet <command> --help` for complete flags.
+Requires skillnet-ai 0.2.0+. Run `skillnet <command> --help` for complete flags.
 The Python facade is `from skillnet_ai import SkillNetClient`; it uses the same
 runtime configuration as the CLI. Existing list/path/report SDK return types are
 preserved. `python -m skillnet_ai` exposes the same CLI.
 
-## Four workflows
+## Workflows
 
 | Command | Important options |
 |---|---|
@@ -13,10 +13,15 @@ preserved. `python -m skillnet_ai` exposes the same CLI.
 | `download URL` | `--target-dir/-d`, `--overwrite`, `--mirror`; prefer configured `GITHUB_TOKEN` to `--token` |
 | `create [TRAJECTORY_FILE]` | Exactly one source: positional trajectory, `--github`, `--office`, `--prompt`; `--output-dir/-d`, `--model/-m`, `--max-files`, `--evaluate/--no-evaluate`, `--json-mode` |
 | `evaluate TARGET` | Local directory or GitHub skill URL; `--model/-m`, `--json-mode`, optional name/category/description overrides |
+| `analyze SKILLS_DIR` | `--output-dir`, `--model`, `--force`; direct child folders with `SKILL.md`; requires analysis and embedding endpoints |
+| `route QUERY` | `--index-dir` (required), `--k`, `--backend claude|codex`; requires embedding and Explorer endpoints |
 
-All four accept `--json`. Plain `create` does not evaluate unless `--evaluate` is
+All accept `--json`. Plain `create` does not evaluate unless `--evaluate` is
 supplied. The skill's default workflow and legacy create helper enable evaluation.
 Generated structure is checked before a requested evaluation.
+
+See [routing.md](routing.md) for analysis/routing configuration, budgets and
+snapshot behavior. `route` replaces `orchestrate`; old graphs must be rebuilt.
 
 Downloads accept HTTPS GitHub `tree` URLs. A `blob/.../SKILL.md` link downloads its
 parent package including resources. Encode a slash inside a branch name as `%2F`,
@@ -39,6 +44,8 @@ Business results use one JSON document on stdout:
 | download | `{"path": "/absolute/installed/skill"}` |
 | create | `paths` (absolute paths), `validation` (per-path errors/warnings), `evaluations` (per-path `ok`, `report`, `error`) |
 | evaluate | Five-dimension report, retaining additional fields such as `prompt_injection_scan` |
+| analyze | `index_dir`, `skill_count`, `relation_counts`, `cache_hits`; the full graph is in the analysis directory |
+| route | `skills` with IDs, names, original paths, reasons and source-line evidence; `coverage_gaps`, available `usage` |
 
 A failed operation has `ok: false`, `error: {code, message, hint}` and exits 1.
 Partial creation data remains available. Empty search results are successful.
@@ -52,7 +59,7 @@ Each evaluation dimension (`safety`, `completeness`, `executability`,
 `overall_score` or `summary` field. Evaluation samples content; inspect any
 injection scan's `complete` and `scan_issues` fields for coverage limitations.
 
-The shared SDK reads up to 12,000 characters of SKILL.md, up to 5 scripts with
+The evaluation reader reads up to 12,000 characters of SKILL.md, up to 5 scripts with
 12,000 characters per file, and up to 10 reference files with 4,000 characters
 per file. The script portion is therefore bounded at 60,000 characters. These
 are character limits, not token limits. Small scripts are read in full; exceeding
@@ -61,7 +68,7 @@ The CLI and this skill use these same SDK defaults.
 
 ## Provider compatibility
 
-`BASE_URL` points to a Chat Completions-compatible base, not the search API or an
+For creation and evaluation, `BASE_URL` points to a Chat Completions-compatible base, not the search API or an
 agent login endpoint. Create uses model/messages; evaluation also requests JSON
 and a sampling temperature:
 
@@ -76,6 +83,11 @@ and account failures are not reasons to change providers or use host-generated
 substitutes. Model transport errors are returned for recovery without hidden SDK retries;
 compatibility fallback is bounded by the optional parameters and does not perform
 repeated content-generation loops.
+
+Analysis instead requires strict JSON Schema by default, with an explicit
+prompt-only mode for compatible gateways. Analysis/routing never repair JSON,
+drop unsupported parameters or retry a failed exploration. Embeddings and the
+Explorer use their separately configured APIs; see [routing.md](routing.md).
 
 ## Recovery
 

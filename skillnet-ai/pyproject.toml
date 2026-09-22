@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "skillnet-ai"
-version = "0.1.1"
+version = "0.2.0"
 description = "Official Python SDK for SkillNet: Create, Evaluate, and Connect AI Skills."
 readme = "README.md"
 authors = [{ name = "SkillNet Team", email = "liangyuannnnn@gmail.com" }]
@@ -34,31 +34,49 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-orchestrate = [
+claude = [
     "claude-agent-sdk>=0.2.110,<0.3",
 ]
+codex = ["openai-codex>=0.144.4,<0.145"]
 graph = [
     "numpy>=1.24",
-    "faiss-cpu>=1.8",
-    "networkx>=3.0",
-    "scikit-learn>=1.3",
 ]
+dev = ["pytest>=8,<10", "ruff>=0.12,<1", "mypy>=1.15,<3", "build>=1.2,<2",
+       "types-PyYAML", "types-requests", "jsonschema>=4.20,<5"]
 
 [project.urls]
 "Homepage" = "http://skillnet.openkg.cn"
 "Source" = "https://github.com/zjunlp/SkillNet"
 
 [project.scripts]
-skillnet = "skillnet_ai.cli:app"
+skillnet = "skillnet_ai.interfaces.cli:app"
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
-[tool.setuptools.package-data]
-skillnet_ai = [
-    "resources/scenes/*/*.md",
-    "resources/scenes/*/communities/*.md",
-    "resources/scenes/*/skills/cards/*.md",
-    "resources/scenes/*/skills/sources/*.md",
-    "resources/scenes/*/workflows/*.md",
-]
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "B", "UP"]
+
+[tool.ruff.lint.flake8-bugbear]
+extend-immutable-calls = ["typer.Option", "typer.Argument"]
+
+[tool.mypy]
+python_version = "3.10"
+files = ["src/skillnet_ai/core/models.py", "src/skillnet_ai/analyzer.py",
+         "src/skillnet_ai/core/llm.py", "src/skillnet_ai/router"]
+check_untyped_defs = true
+disallow_untyped_defs = true
+warn_unused_ignores = true
+follow_imports = "silent"
+
+[[tool.mypy.overrides]]
+module = ["claude_agent_sdk.*", "openai_codex.*"]
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-config --strict-markers"

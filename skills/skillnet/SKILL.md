@@ -1,22 +1,25 @@
 ---
 name: skillnet
 description: >-
-  Search, download, create and evaluate reusable agent skills with SkillNet.
+  Search, download, create, evaluate, analyze and route reusable agent skills with SkillNet.
   Use when asked to find or reuse a skill, turn a repo/document/trace into a skill,
-  assess skill quality, or fill a clearly identified capability gap with a reusable skill.
-  中文：搜索、下载、创建、评估技能。不用于普通代码修改或仅阅读文档。
+  assess skill quality, build a local skill graph, select skills for a task,
+  or fill a clearly identified capability gap with a reusable skill.
+  中文：搜索、下载、创建、评估、分析与路由技能。不用于普通代码修改或仅阅读文档。
 metadata:
-  version: "0.1.1"
-  requirements: "Python 3.10+, skillnet-ai 0.1.1+, network; model API for create/evaluate"
+  version: "0.2.0"
+  requirements: "Python 3.10+, skillnet-ai 0.2.0+, network; model API for create/evaluate/analyze; graph extra and embedding API for analyze/route; Claude or Codex SDK for route"
 ---
 
 # SkillNet
 
-Find a useful skill, bring its complete resources into the workspace, or create
-and evaluate a reusable skill through the real SkillNet SDK.
+Find a useful skill, bring its complete resources into the workspace, create and
+evaluate reusable skills, or analyze and route a local library through the SkillNet SDK.
 
 ## Choose the workflow
 
+- **Analyze and route:** build a local skill graph, then select skills for a task.
+  Read [routing.md](references/routing.md) for separate model and SDK configuration.
 - **Find:** search and return relevant candidates with URLs and tradeoffs.
 - **Reuse or install:** inspect relevant skills already available, then search →
   select → download → inspect → apply when the user requested its use.
@@ -30,7 +33,7 @@ to create a skill; it need not meet an additional complexity threshold.
 
 ## Runtime and configuration
 
-Use the installed `skillnet` CLI (version 0.1.1+). Prefer `--json` for reliable paths,
+Use the installed `skillnet` CLI (version 0.2.0+). Prefer `--json` for reliable paths,
 URLs and error information. If the command is missing, outdated, or its interpreter
 is uncertain, read [setup.md](references/setup.md). `python -m skillnet_ai` is an
 alternative when using the Python environment that actually contains the SDK.

@@ -1,8 +1,8 @@
 import requests
 import logging
 from typing import Optional, List, Dict, Any, Literal
-from skillnet_ai.models import SearchResponse
-from skillnet_ai.config import resolve_settings
+from skillnet_ai.core.models import SearchResponse
+from skillnet_ai.core.config import resolve_settings
 
 # Configure logger
 logger = logging.getLogger(__name__)

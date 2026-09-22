@@ -24,16 +24,20 @@
 - **Install** skills from GitHub skill directories.
 - **Create** structured skill packages from prompts, execution traces, repositories, or documents.
 - **Evaluate** skill quality across safety, completeness, executability, maintainability, and cost awareness.
-- **Analyze** how local skills compose into relationship graphs or scenario-level workflows.
-- **Orchestrate** a preset scene by selecting the right skills and generating a downstream agent prompt.
+- **Analyze** local skills into a scenario graph with composition and similarity relationships.
+- **Route** a task through a local skill Wiki and return up to k skills with source evidence.
 
-Search and public skill download do **not** require an API key. Create, evaluate, and analyze use OpenAI-compatible endpoints. Orchestration runs through Claude Agent SDK and requires a compatible gateway configured through `API_KEY`, `BASE_URL`, and `SKILLNET_MODEL`.
+Search and public skill download do **not** require an API key. Create, evaluate, and analyze use OpenAI-compatible endpoints. Routing uses an independently configured Claude or Codex Agent SDK and an embedding endpoint.
 
 For the full project overview, research context, integrations, and roadmap, see the [main SkillNet repository](https://github.com/zjunlp/SkillNet).
 
 ---
 
 ## Installation
+
+The analyze/route APIs below require the 0.2.0 source tree. Until it is published,
+install this checkout with `pip install -e ".[graph,claude]"`.
+
 
 ```bash
 pip install skillnet-ai
@@ -43,7 +47,8 @@ Optional extras:
 
 ```bash
 pip install "skillnet-ai[graph]"        # scenario graph analysis
-pip install "skillnet-ai[orchestrate]"  # scene orchestration via Claude Agent SDK
+pip install "skillnet-ai[graph,claude]"  # local routing via Claude Agent SDK
+pip install "skillnet-ai[graph,codex]"   # local routing via Codex SDK
 ```
 
 ---
@@ -81,7 +86,7 @@ skillnet download <skill_url> -d ./my_skills
 | Create skills | `client.create(...)` | `skillnet create ...` | Yes |
 | Evaluate skills | `client.evaluate(...)` | `skillnet evaluate ...` | Yes |
 | Analyze relationships | `client.analyze(...)` | `skillnet analyze ...` | Yes |
-| Orchestrate scene skills | `client.orchestrate(...)` | `skillnet orchestrate ...` | Yes |
+| Route local skills | `client.route(...)` | `skillnet route ...` | Embedding + Agent SDK |
 
 ---
 
@@ -93,7 +98,7 @@ skillnet download <skill_url> -d ./my_skills
 from skillnet_ai import SkillNetClient
 
 client = SkillNetClient(
-    api_key="your-api-key",       # required for create, evaluate, analyze, orchestrate
+    api_key="your-api-key",       # required for create, evaluate, analyze
     base_url="https://api.openai.com/v1",
     github_token=None,            # optional, for private repos or higher GitHub rate limits
 )
@@ -191,8 +196,8 @@ skill-name/
 ```python
 report = client.evaluate("./my_skills/table-extractor")
 
-print(report["overall_score"])
-print(report["summary"])
+print(report["safety"]["level"], report["safety"]["reason"])
+print(report["maintainability"]["level"], report["maintainability"]["reason"])
 ```
 
 SkillNet evaluates five dimensions:
@@ -203,92 +208,119 @@ SkillNet evaluates five dimensions:
 - Maintainability
 - Cost awareness
 
-### Analyze
+### Analyze and route local skills
 
-`analyze` reads a local directory of skill folders. The default `basic` mode infers lightweight relationships from skill names, descriptions, and metadata:
+`analyze` builds a reusable scenario graph, retrieval index and Wiki from local skill
+folders. `route` retrieves a task-specific subgraph and uses a configured Claude or
+Codex Agent SDK to read source evidence and select up to `k` skills.
 
 ```python
-relationships = client.analyze("./my_skills")
-
-for rel in relationships:
-    print(f"{rel['source']} --[{rel['type']}]--> {rel['target']}")
+analysis = client.analyze("./my_skills", output_dir="./skillnet_index")
+result = client.route(
+    "Compute statistics from my existing CSV tables",
+    index_dir=analysis.index_dir,
+    k=5,
+)
+for skill in result.skills:
+    print(skill.name, skill.path, skill.reason)
+print(result.coverage_gaps)
 ```
 
-Relationship types are `similar_to`, `belong_to`, `compose_with`, and `depend_on`.
+The graph has two relations: directed `compose_with` for scenario-supported
+combinations, and undirected `similar_to` for comparable capabilities. Relations
+suggest candidates; they do not force co-selection. Routing returns skills and
+source evidence without generating an execution prompt.
 
-For workflow composition, `scenario` mode extracts each skill's required and produced scenarios, retrieves candidate handoffs with embeddings, verifies them with the configured LLM, and builds a directed skill graph. It analyzes local skill folders only.
+Place each skill in a direct child folder containing a YAML-frontmatter `SKILL.md`.
+Folder names are stable IDs; display names may repeat. Analysis reads the full
+SKILL.md but does not execute or automatically inspect linked scripts/references.
+The `graph` extra provides NumPy; BM25 requires SQLite FTS5. Agent SDK extras are
+loaded only for routing. Install from this checkout with `pip install -e '.[graph,claude]'`
+or `pip install -e '.[graph,codex]'`.
 
-Install the graph extra before using scenario mode:
+Analysis, embeddings and Explorer SDKs have separate endpoint settings. Configure
+them using existing credential environment variables:
 
 ```bash
-pip install "skillnet-ai[graph]"
+skillnet configure --base-url https://chat.example/v1 --model analysis-model \
+  --api-key-env MY_CHAT_KEY
+skillnet configure --embedding-base-url https://embedding.example/v1 \
+  --embedding-model embedding-model --embedding-api-key-env MY_EMBEDDING_KEY
+skillnet configure --explorer-backend claude --explorer-base-url https://agent.example \
+  --explorer-model explorer-model --explorer-api-key-env MY_AGENT_KEY
+skillnet doctor --json
 ```
 
-```python
-graph = client.analyze(
-    "./my_skills",
-    mode="scenario",
-    embedding_api_key="your-embedding-api-key",
-    embedding_base_url="https://embedding.example/v1",
-    embedding_model="your-embedding-model",
-    output_dir="./my_skills/skillnet_graph",
-    max_workers=4,
-    top_k=30,
-    timeout=120,
-)
+Analysis uses Chat Completions; embeddings use the embeddings API. The Explorer
+gateway must support the selected SDK's actual protocol, tools and structured
+output. SkillNet does not infer one endpoint from another or load a workspace
+`.env` automatically. `doctor --check-explorer --json` makes an explicitly billable
+SDK tool-reading and structured-output check. Default backend: `claude`; select
+Codex with `route(..., backend="codex")` or `--backend codex`.
 
-print(graph["scenario_skill_graph"]["edges"])
-print(graph["relationships"])  # compatibility view
-```
+For per-call configuration, pass `Endpoint(api_key=..., base_url=..., model=...)`
+as `embedding` or `explorer`. Credentials use Pydantic `SecretStr`. The analyze
+`model` keyword changes only the analysis model, retaining the client's URL/key.
 
-`basic` mode returns `list[dict]`. `scenario` mode returns a graph result dictionary with a `relationships` compatibility view.
+Pass typed budgets through `options=AnalysisOptions(...)` or
+`options=RouteOptions(...)`, imported from `skillnet_ai`:
 
-Scenario mode writes graph artifacts under `SKILLS_DIR/skillnet_graph` by default:
+| Analysis option | Default | Meaning |
+| :-- | :-- | :-- |
+| `max_workers` | `4` | Parallel profile extractions or pair judgments |
+| `candidate_limit` | `8` | Fused capability candidates and aggregated handoff candidates per skill; explicit references are additional |
+| `embedding_batch_size` | `8` | Texts per embedding request |
+| `timeout` | `120` | Model/embedding request timeout in seconds, not a whole-build deadline |
+| `request_retries` | `0` | Transport retries; no content-generation retry loop |
+| `json_mode` | `"on"` | Strict JSON Schema; `"off"` requests JSON through the prompt only |
+| `reasoning_effort` | `None` | Omitted unless explicitly set to a model-supported none/low/medium/high |
 
-```text
-skillnet_graph/
-├── skill_scenarios.json
-├── scenario_dedup.json
-├── scenario_alignment.json
-├── scenario_alignment_keep.json
-├── skill_edge_redundancy_reviews.json
-├── scenario_alignment_nonredundant_keep.json
-├── scenario_skill_graph.json
-└── relationships.json
-```
+For reasoning models such as `gpt-5.4-mini`, set
+`AnalysisOptions(reasoning_effort="medium")` or `--reasoning-effort medium` explicitly.
+Invalid JSON still fails in prompt-only mode; there is no repair or automatic
+protocol downgrade. The analysis option is independent of evaluation's JSON mode.
 
-Scenario embedding configuration is intentionally separate from chat LLM configuration. `API_KEY`, `BASE_URL`, and `SKILLNET_MODEL` configure extraction and verification; `EMBEDDING_API_KEY`, `EMBEDDING_BASE_URL`, and `EMBEDDING_MODEL` configure the embedding API.
+| Routing option | Default | Meaning |
+| :-- | :-- | :-- |
+| `seed_limit` | `24` | Seeds from BM25/vector reciprocal rank fusion |
+| `candidate_limit` | `100` | Total candidates after graph expansion; must be at least seed_limit |
+| `max_depth` | `2` | Graph expansion depth; zero keeps only seeds |
+| `timeout` | `300` | Query embedding timeout and a separate SDK exploration timeout, in seconds |
+| `max_turns` | `24` | Claude SDK turn limit; unused by Codex |
+| `read_limit` | `None` | Defaults to 2 + 2*k; Claude Read-call budget; Codex command budget adds 9 |
+| `reasoning_effort` | `"medium"` | Explorer reasoning: low/medium/high |
 
-### Orchestrate
+`k` is a separate route argument (default 5), an upper bound rather than a quota.
+An empty selection with coverage gaps is valid. Returned order is not execution
+order. Results contain `skills` (ID, name, original path, reason, source-line
+evidence), `coverage_gaps`, and available SDK `usage`; embedding usage is not included.
+The program validates IDs, duplicates, count, source-page reads and citation bounds;
+the semantic quality of relations and selections still depends on the model.
 
-`orchestrate` requires `API_KEY`. It selects skills for a preset scene and returns a skill collection URL, selected skill names, and a downstream agent prompt. The first release supports `scene="sciatlas"`.
-Its `BASE_URL` must support Claude Agent SDK requests; an OpenAI-only endpoint is not sufficient.
+Analysis returns `index_dir`, `skill_count`, `relation_counts` and `cache_hits`.
+Output defaults to `skills/.skillnet`. A `CURRENT` pointer identifies the successful
+immutable snapshot containing `graph.json`, `embeddings.npz`, `bm25.sqlite` and
+template-generated `wiki/`. The graph retains full source snapshots, profiles and
+relation evidence; Wiki generation makes no additional model calls.
 
-```bash
-pip install "skillnet-ai[orchestrate]"
-```
+Successful model results, including negative pair judgments, are stored in one
+`cache.sqlite`. Source fingerprints and explicit model/prompt versions control reuse.
+Run analyze again after editing skills; `force=True` / `--force` recomputes results.
+Routing uses the published graph snapshot and regenerates a temporary task Wiki;
+it does not rescan live sources or use manual edits to generated Wiki pages.
+It requires the same embedding endpoint/model and compatible vector dimensions.
 
-```python
-result = client.orchestrate(
-    "Find recent papers on retrieval-augmented generation and propose three follow-up ideas.",
-    scene="sciatlas",
-    timeout=240,
-)
+Publication updates `CURRENT` only after all outputs succeed. Old snapshots remain
+for in-flight readers and can be removed when no readers use them. Failed model
+calls, damaged indexes and SDK timeouts produce errors; there is no provider switch,
+Explorer retry or retrieval-only result substituted for failed exploration.
 
-print(result.package_url)
-print([skill.name for skill in result.skills])
-print(result.prompt)
-```
-
-Returned object:
-
-```python
-result.package_url  # GitHub URL for the full skill collection
-result.skills       # selected skills with skill_id and name
-result.prompt       # downstream execution-agent prompt
-```
-
----
+**Migration to 0.2.0:** remove analyze's `mode` and `save_to_file`, configure embeddings
+and rebuild old graphs. Replace `orchestrate(query, scene=...)` with
+`route(query, index_dir=..., k=...)`. Old aliases, preset scenes and `depend_on`
+relations are removed. Search, download, create and evaluate retain their APIs.
+When changing extraction or relation schemas/semantics, increment the explicit
+versions in `src/skillnet_ai/core/prompts.py` to invalidate obsolete cached results.
 
 ## CLI
 
@@ -308,7 +340,7 @@ skillnet <command> --help
 | `create` | Create a skill package | `skillnet create --prompt "A skill for table extraction"` |
 | `evaluate` | Evaluate a local or remote skill | `skillnet evaluate ./my_skill` |
 | `analyze` | Analyze local skill relationships or scenario graphs | `skillnet analyze ./my_skills` |
-| `orchestrate` | Build a scene skill handoff | `skillnet orchestrate "search papers about RAG"` |
+| `route` | Select local skills for a task | `skillnet route "analyze my CSV" --index-dir ./skillnet_index` |
 
 ### Search
 
@@ -346,53 +378,18 @@ skillnet evaluate https://github.com/anthropics/skills/tree/main/skills/algorith
 skillnet evaluate ./my_skill --category "Development" --model gpt-4o
 ```
 
-### Analyze
-
-Basic relationship analysis:
+### Analyze and route
 
 ```bash
-skillnet analyze ./my_skills
-skillnet analyze ./my_skills --no-save
-skillnet analyze ./my_skills --model gpt-4o
+skillnet analyze ./my_skills --output-dir ./skillnet_index --json
+skillnet route "Compute statistics from my CSV" --index-dir ./skillnet_index --k 5 --json
 ```
 
-Scenario graph analysis requires `skillnet-ai[graph]` and an OpenAI-compatible embedding endpoint:
-
-```bash
-pip install "skillnet-ai[graph]"
-
-export EMBEDDING_API_KEY="your-embedding-api-key"
-export EMBEDDING_BASE_URL="https://embedding.example/v1"
-export EMBEDDING_MODEL="your-embedding-model"
-
-skillnet analyze ./my_skills --mode scenario \
-  --output-dir ./my_skills/skillnet_graph \
-  --max-workers 4 \
-  --top-k 30 \
-  --timeout 120
-```
-
-You can also pass `--embedding-api-key`, `--embedding-base-url`, and `--embedding-model` directly. `--max-workers` controls scenario extraction, candidate verification, and redundancy review concurrency. `--top-k` controls how many candidate scenario handoffs are retrieved for each produced scenario before LLM verification. Use `--force` to recompute existing artifacts.
-
-### Orchestrate
-
-```bash
-pip install "skillnet-ai[orchestrate]"
-
-skillnet orchestrate "Find recent RAG papers and propose three follow-up ideas" \
-  --scene sciatlas \
-  --timeout 240
-```
-
-The terminal output includes the collection URL, selected skills, and the downstream agent prompt. Use `--json` when calling from scripts.
-
----
-
-## Agent-facing workflow updates (0.1.1 candidate)
+## Agent-facing workflow updates (0.2.0)
 
 The [portable skill](../skills/skillnet/SKILL.md) uses this same CLI/SDK across agents.
-See [Windows/macOS setup](../skills/skillnet/references/setup.md) and
-[validation status](acceptance/README.md). Before publication, install this checkout.
+See [Windows/macOS setup](../skills/skillnet/references/setup.md).
+Before publication, install this checkout.
 
 ```text
 skillnet configure --interactive
@@ -410,7 +407,7 @@ locally in plaintext with user-file permissions; keep this file out of repositor
 `doctor` is local by default; `--check-network` and potentially billable `--check-llm`
 are opt-in. No model key is needed for search/public download.
 
-Four commands support `--json`: one `{ok, data, error}` document on stdout, with
+The six workflow commands support `--json`: one `{ok, data, error}` document on stdout, with
 logs on stderr. Creation remains non-evaluating by default; `--evaluate` adds
 structure validation and per-skill model reports. Evaluation failures preserve
 created paths and return a nonzero exit. Poor ratings are valid evaluation results.
@@ -443,17 +440,21 @@ retain a smaller explicit budget.
 
 | Variable | Required for | Default |
 | :-- | :-- | :-- |
-| `API_KEY` | `create`, `evaluate`, `analyze`, `orchestrate` | unset |
-| `BASE_URL` | Custom LLM endpoint; orchestration requires a Claude Agent SDK-compatible gateway | `https://api.openai.com/v1` |
+| `API_KEY` | `create`, `evaluate`, `analyze` | unset |
+| `BASE_URL` | Chat Completions endpoint for create, evaluate and analyze | `https://api.openai.com/v1` |
 | `SKILLNET_MODEL` | Default LLM model | `gpt-4o` |
 | `GITHUB_TOKEN` | Private repos or higher GitHub rate limits | unset |
 | `GITHUB_MIRROR` | Public raw-file fallback mirror (disabled with GitHub authentication) | unset |
 | `SKILLNET_API_URL` | Search service base URL | `http://api-skillnet.openkg.cn` |
 | `SKILLNET_JSON_MODE` | Evaluation JSON mode: auto/on/off | `auto` |
 | `SKILLNET_CONFIG` | Optional user config path | `~/.skillnet/config.json` |
-| `EMBEDDING_API_KEY` | `analyze --mode scenario` | unset |
-| `EMBEDDING_BASE_URL` | `analyze --mode scenario` | unset |
-| `EMBEDDING_MODEL` | `analyze --mode scenario` | unset |
+| `EMBEDDING_API_KEY` | `analyze` and `route` | unset |
+| `EMBEDDING_BASE_URL` | `analyze` and `route` | unset |
+| `EMBEDDING_MODEL` | `analyze` and `route` | unset |
+| `SKILLNET_EXPLORER_BACKEND` | `route`: claude or codex | `claude` |
+| `SKILLNET_EXPLORER_API_KEY` | `route` SDK credential | unset |
+| `SKILLNET_EXPLORER_BASE_URL` | `route` SDK-compatible base URL | unset |
+| `SKILLNET_EXPLORER_MODEL` | `route` SDK model | unset |
 
 `search` and public `download` require no credentials.
 
@@ -494,6 +495,23 @@ This layout keeps routing instructions, deterministic helper code, and heavier r
 ## Contributing
 
 Contributions are welcome. Open an issue for bugs, feature requests, or documentation improvements, and submit pull requests for focused changes.
+
+The top level contains the main capabilities: `searcher.py`, `downloader.py`,
+`creator.py`, `evaluator.py` and `analyzer.py`. Analysis owns source extraction,
+relationship construction and model-result caching. `router/` contains the routing
+flow (`router.py`), index construction/loading/retrieval (`index.py`), Wiki rendering
+(`wiki.py`) and both Agent SDK implementations (`explorer.py`).
+
+`core/` contains data contracts, prompts, model requests, configuration, validation
+and the existing injection scanner. It does not import the business modules.
+`interfaces/client.py` and `interfaces/cli.py` expose the Python and CLI entry points.
+Package initializers only declare packages or export entry points. Public imports
+such as `from skillnet_ai import SkillNetClient` and the `skillnet` command remain
+unchanged; previous internal module paths have no forwarding aliases.
+
+From this directory, install `pip install -e '.[graph,dev,claude,codex]'`, then run
+`pytest -q`, `mypy` and `python -m build`. The analyze/route tests replace network
+boundaries; ordinary tests do not require model credentials.
 
 ## License
 

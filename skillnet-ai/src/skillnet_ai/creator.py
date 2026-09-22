@@ -9,7 +9,7 @@ from typing import List, Optional, Dict, Any
 
 import requests
 from openai import OpenAI
-from skillnet_ai.prompts import (
+from skillnet_ai.core.prompts import (
     CANDIDATE_METADATA_SYSTEM_PROMPT,
     CANDIDATE_METADATA_USER_PROMPT_TEMPLATE,
     SKILL_CONTENT_SYSTEM_PROMPT,
@@ -22,9 +22,8 @@ from skillnet_ai.prompts import (
     PROMPT_SKILL_USER_PROMPT_TEMPLATE
 )
 
-from skillnet_ai.config import resolve_settings
-from skillnet_ai.llm import chat_completion
-from skillnet_ai.errors import error_details
+from skillnet_ai.core.config import resolve_settings
+from skillnet_ai.core.llm import chat_completion, error_details
 from skillnet_ai.downloader import SkillDownloader, GitHubAPIError
 
 logger = logging.getLogger(__name__)

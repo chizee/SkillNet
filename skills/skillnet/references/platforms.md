@@ -38,9 +38,7 @@ as required by that client. Verify that it can read a linked reference and run
 
 Official documentation confirms local package import and enable/disable support.
 The archive layout, full resource import and Python/config access still require
-Windows/macOS client testing. The maintainer packaging tool produces a standard
-ZIP with a `skillnet/` root; this is a candidate package, not evidence that a
-particular WorkBuddy version accepts it. Record the supported client version and
+Windows/macOS client testing. Record the supported client version and archive
 layout after testing before marking compatibility verified.
 
 Sources:

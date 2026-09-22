@@ -1,4 +1,0 @@
-include tests/conftest.py
-recursive-include acceptance *.md *.json *.py
-# This test requires the full Git checkout (the separately distributed skill).
-exclude tests/test_skill_distribution.py

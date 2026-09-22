@@ -1,11 +1,11 @@
-"""Tests for skillnet_ai.injection."""
+"""Tests for skillnet_ai.core.injection."""
 
 import builtins
 import textwrap
 
 import pytest
 
-from skillnet_ai.injection import InjectionContent, SkillInjectionScanner
+from skillnet_ai.core.injection import InjectionContent, SkillInjectionScanner
 
 
 @pytest.fixture

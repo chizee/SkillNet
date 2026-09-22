@@ -10,8 +10,8 @@ from urllib.parse import quote, unquote, urlencode, urlsplit
 
 import requests
 
-from skillnet_ai.config import resolve_settings
-from skillnet_ai.validation import validate_skill
+from skillnet_ai.core.config import resolve_settings
+from skillnet_ai.core.validation import validate_skill
 
 logger = logging.getLogger(__name__)
 
