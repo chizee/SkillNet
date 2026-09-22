@@ -331,19 +331,17 @@ curl "http://api-skillnet.openkg.cn/v1/search?q=reading%20charts&mode=vector&thr
 
 ## Use SkillNet Inside Agents
 
-The [SkillNet skill](skills/skillnet/SKILL.md) lets compatible agents use all six
-operations through the CLI and SDK. Install the complete skill directory,
-including its scripts and references. The guides below cover installation paths
-and setup for Codex, Claude Code, dsh, and WorkBuddy.
+Install the [SkillNet skill](skills/skillnet/) to give your agent access to all
+six operations. See [installation and configuration](skills/skillnet/references/setup.md)
+and [agent setup](skills/skillnet/references/platforms.md) for instructions.
 
-- [Installation and API configuration / 安装与 API 配置](skills/skillnet/references/setup.md)
-- [Agent directories and WorkBuddy import](skills/skillnet/references/platforms.md)
+The demo below shows Claude Code using the SkillNet skill.
 
-Agents use the same environment variables and saved settings as the CLI. See the
-setup guide if an agent cannot find your Python environment or `skillnet` command.
+<div align="center">
 
-Try: “用 SkillNet 找一个处理 CSV 的技能，下载后检查它是否适合我的数据。”
-Or: “Use SkillNet to create a reusable CSV header checker and evaluate it.”
+https://github.com/user-attachments/assets/ae6020d9-6846-4672-84ce-fa9c8057e92b
+
+</div>
 
 ### Model Context Protocol
 
