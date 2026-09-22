@@ -223,22 +223,20 @@ class AnalysisResult(Record):
 
 
 class Selection(Record):
-    """The Explorer selects IDs and source line references, never invents local paths."""
+    """One Explorer-selected skill ID and its task-specific reason."""
 
     skill_id: str
     reason: str = Field(min_length=1)
-    evidence: list[Citation] = Field(min_length=1)
 
 
 class SkillSelection(Record):
     """Structured output shared by both SDK backends."""
 
     skills: list[Selection]
-    coverage_gaps: list[str]
 
 
 class RoutedSkill(Selection):
-    """Selected skill mapped back to its registered package."""
+    """Selected skill enriched with its registered package name and path."""
 
     name: str
     path: str
@@ -248,14 +246,12 @@ class RouteResult(Record):
     """A bounded skill set, not an execution plan."""
 
     skills: list[RoutedSkill]
-    coverage_gaps: list[str]
     usage: dict[str, int | float] | None = None
 
 
 @dataclass
 class Exploration:
-    """Structured selection plus successful Wiki reads observed from the SDK."""
+    """Structured selection and usage reported by the SDK."""
 
     selection: SkillSelection
-    pages_read: set[str]
     usage: dict[str, int | float] | None = None

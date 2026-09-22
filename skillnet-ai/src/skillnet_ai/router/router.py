@@ -19,8 +19,7 @@ from skillnet_ai.core.models import (
     RouteResult,
     SkillProfile,
 )
-from skillnet_ai.core.validation import validate_citations
-from skillnet_ai.router.wiki import materialize_wiki, source_page
+from skillnet_ai.router.wiki import materialize_wiki
 
 if TYPE_CHECKING:
     from skillnet_ai.router.explorer import ClaudeExplorer, CodexExplorer
@@ -98,27 +97,27 @@ def backend_for(name: str) -> "ClaudeExplorer | CodexExplorer":
 
 
 def validate_selection(run: Exploration, candidates: list[AnalyzedSkill], k: int) -> RouteResult:
-    """Require real candidate IDs and evidence from successfully read original sources."""
+    """Validate candidate IDs and selection limits, then resolve package paths."""
 
     selection = run.selection
     ids = [s.skill_id for s in selection.skills]
     if len(ids) > k or len(set(ids)) != len(ids):
         raise ValueError("Explorer returned duplicate skills or exceeded k.")
-    if not ids and not any(gap.strip() for gap in selection.coverage_gaps):
-        raise ValueError("An empty selection must explain its coverage gaps.")
-    if not run.pages_read:
-        raise ValueError("Explorer did not successfully read the task Wiki.")
     by_id = {s.skill_id: s for s in candidates}
     result = []
     for selected in selection.skills:
         if selected.skill_id not in by_id:
             raise ValueError("Explorer selected a skill outside the task Wiki.")
-        if source_page(selected.skill_id) not in run.pages_read:
-            raise ValueError(f"Explorer did not read the selected skill: {selected.skill_id}")
         skill = by_id[selected.skill_id]
-        validate_citations(selected.evidence, skill.source)
-        result.append(RoutedSkill(**selected.model_dump(), name=skill.name, path=skill.path))
-    return RouteResult(skills=result, coverage_gaps=selection.coverage_gaps, usage=run.usage)
+        result.append(
+            RoutedSkill(
+                skill_id=selected.skill_id,
+                name=skill.name,
+                path=skill.path,
+                reason=selected.reason,
+            )
+        )
+    return RouteResult(skills=result, usage=run.usage)
 
 
 def explore(
@@ -163,7 +162,7 @@ def expand(seeds: list[str], edges: list[Relation], *, limit: int, depth: int) -
 
 
 def check_explorer_runtime(settings: Settings) -> None:
-    """Require real SDK reads and valid structured selection on a one-skill Wiki."""
+    """Check SDK exploration and structured selection on a one-skill Wiki."""
 
     capability = GroundedField(
         text="Count rows in a supplied CSV file.", evidence=[Citation(line=1)]

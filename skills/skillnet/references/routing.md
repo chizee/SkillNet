@@ -12,19 +12,19 @@ Use the user's existing model configuration; do not read agent login credentials
 2. Run `skillnet analyze SKILLS_DIR --output-dir INDEX_DIR --json` on direct child
    skill folders. Analysis makes model calls and writes a reusable local index.
 3. Run `skillnet route "TASK" --index-dir INDEX_DIR --k 5 --json`.
-4. Present selected skills, original paths, reasons and coverage gaps. Applying
+4. Present selected skills, original paths and reasons. Applying
    skills is a subsequent user task; routing itself does not execute them.
 
 Composition edges are directed, scenario-conditioned suggestions. Similarity
 edges identify comparable capabilities. Neither requires selecting both skills.
-The result may contain fewer than k skills, including zero when coverage is absent.
+The result may contain fewer than k skills, including zero when no suitable skill is found.
 
 Reanalyze after editing skills. The index preserves the analyzed source snapshot.
 `--force` recomputes API results. Failures are explicit; do not describe a failed
 SDK call as a successful empty selection or substitute a retrieval-only result.
 
 `skillnet doctor --json` is offline. `--check-explorer` is an explicit, billable
-check of the chosen SDK's tool-reading and structured-output behavior.
+check of the chosen SDK's exploration and structured-output behavior.
 
 Version 0.2.0 removes basic/scenario mode switches, preset scenes and orchestrate.
 Old graphs must be rebuilt; no execution prompt is returned.

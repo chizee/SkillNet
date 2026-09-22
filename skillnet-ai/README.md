@@ -18,16 +18,19 @@
 
 ## What Is SkillNet?
 
-`skillnet-ai` is the installable Python package for SkillNet. It gives applications, scripts, and agent runtimes one interface for the skill lifecycle:
+`skillnet-ai` provides the Python SDK and CLI for SkillNet, with six operations for working with reusable agent skills:
 
-- **Find** skills with keyword or semantic search.
-- **Install** skills from GitHub skill directories.
+- **Search** for skills by keyword or semantic intent.
+- **Download** skill folders and their resources from GitHub.
 - **Create** structured skill packages from prompts, execution traces, repositories, or documents.
 - **Evaluate** skill quality across safety, completeness, executability, maintainability, and cost awareness.
-- **Analyze** local skills into a scenario graph with composition and similarity relationships.
-- **Route** a task through a local skill Wiki and return up to k skills with source evidence.
+- **Analyze** local skill capabilities, usage scenarios, and relationships to build a reusable graph.
+- **Route** a task through a local skill Wiki and return up to `k` skills with selection reasons.
 
-Search and public skill download do **not** require an API key. Create, evaluate, and analyze use OpenAI-compatible endpoints. Routing uses an independently configured Claude or Codex Agent SDK and an embedding endpoint.
+Search and public downloads need no API key. Create, evaluate, and analyze use an
+OpenAI-compatible Chat Completions endpoint. Analyze also needs an embedding
+endpoint; route uses that same embedding endpoint and a separately configured
+Claude or Codex Agent SDK.
 
 For the full project overview, research context, integrations, and roadmap, see the [main SkillNet repository](https://github.com/zjunlp/SkillNet).
 
@@ -35,20 +38,18 @@ For the full project overview, research context, integrations, and roadmap, see 
 
 ## Installation
 
-The analyze/route APIs below require the 0.2.0 source tree. Until it is published,
-install this checkout with `pip install -e ".[graph,claude]"`.
-
+Requires Python 3.10 or newer.
 
 ```bash
 pip install skillnet-ai
 ```
 
-Optional extras:
+Install optional dependencies for analysis and routing:
 
 ```bash
-pip install "skillnet-ai[graph]"        # scenario graph analysis
-pip install "skillnet-ai[graph,claude]"  # local routing via Claude Agent SDK
-pip install "skillnet-ai[graph,codex]"   # local routing via Codex SDK
+pip install "skillnet-ai[graph]"         # scenario analysis
+pip install "skillnet-ai[graph,claude]"  # analysis and routing via Claude
+pip install "skillnet-ai[graph,codex]"   # analysis and routing via Codex
 ```
 
 ---
@@ -61,11 +62,13 @@ from skillnet_ai import SkillNetClient
 client = SkillNetClient()
 
 results = client.search(q="pdf", limit=5)
-print(results[0].skill_name)
-print(results[0].skill_url)
+for skill in results:
+    print(skill.skill_name, skill.skill_url)
 
-local_path = client.download(results[0].skill_url, target_dir="./my_skills")
-print(local_path)
+skill = next((item for item in results if item.skill_url), None)
+if skill is not None:
+    local_path = client.download(skill.skill_url, target_dir="./my_skills")
+    print(local_path)
 ```
 
 Equivalent CLI:
@@ -79,14 +82,14 @@ skillnet download <skill_url> -d ./my_skills
 
 ## Feature Overview
 
-| Feature | SDK | CLI | Requires API key |
+| Feature | SDK | CLI | External services |
 | :-- | :-- | :-- | :-- |
-| Search skills | `client.search(...)` | `skillnet search ...` | No |
-| Download skills | `client.download(...)` | `skillnet download ...` | No for public repos |
-| Create skills | `client.create(...)` | `skillnet create ...` | Yes |
-| Evaluate skills | `client.evaluate(...)` | `skillnet evaluate ...` | Yes |
-| Analyze relationships | `client.analyze(...)` | `skillnet analyze ...` | Yes |
-| Route local skills | `client.route(...)` | `skillnet route ...` | Embedding + Agent SDK |
+| Search skills | `client.search(...)` | `skillnet search ...` | Public search API |
+| Download skills | `client.download(...)` | `skillnet download ...` | GitHub; token optional for public repos |
+| Create skills | `client.create(...)` | `skillnet create ...` | Chat Completions API |
+| Evaluate skills | `client.evaluate(...)` | `skillnet evaluate ...` | Chat Completions API |
+| Analyze relationships | `client.analyze(...)` | `skillnet analyze ...` | Chat Completions + embeddings |
+| Route local skills | `client.route(...)` | `skillnet route ...` | Embeddings + Claude or Codex Agent SDK |
 
 ---
 
@@ -97,23 +100,20 @@ skillnet download <skill_url> -d ./my_skills
 ```python
 from skillnet_ai import SkillNetClient
 
-client = SkillNetClient(
-    api_key="your-api-key",       # required for create, evaluate, analyze
-    base_url="https://api.openai.com/v1",
-    github_token=None,            # optional, for private repos or higher GitHub rate limits
-)
+client = SkillNetClient()
 ```
 
-Credentials can also be set through environment variables:
-
-```bash
-export API_KEY="your-api-key"
-export BASE_URL="https://api.openai.com/v1"
-export SKILLNET_MODEL="gpt-4o"
-export GITHUB_TOKEN="your-github-token"
-```
+The client reads environment variables and saved settings. Configure model APIs
+before using create, evaluate, analyze, or route; see [Configuration](#configuration).
+You can override client settings with `api_key`, `base_url`, `model`,
+`github_token`, `skillnet_api_url`, and `json_mode`. Embedding and Explorer
+endpoints are configured separately.
 
 ### Search
+
+Query the hosted SkillNet catalog and return a list of skill records. Keyword
+search defaults to sorting by stars. Vector search uses the hosted service's
+embeddings; `EMBEDDING_*` settings apply to local analysis and routing.
 
 ```python
 results = client.search(
@@ -135,7 +135,7 @@ for skill in results:
 | `q` | `str` | required | Keyword query or natural language description |
 | `mode` | `str` | `"keyword"` | `"keyword"` or `"vector"` |
 | `category` | `str` | `None` | Category filter |
-| `limit` | `int` | `20` | Maximum returned results |
+| `limit` | `int` | `20` | Results requested; the public service accepts 1–50 |
 | `page` | `int` | `1` | Page number for keyword search |
 | `min_stars` | `int` | `0` | Minimum star count for keyword search |
 | `sort_by` | `str` | `"stars"` | `"stars"` or `"recent"` for keyword search |
@@ -145,140 +145,193 @@ for skill in results:
 
 ### Download
 
+Download the skill folder and its resources, validate its structure, and return
+the installed directory path. Use `overwrite=True` to replace an existing folder.
+
 ```python
 local_path = client.download(
-    url="https://github.com/anthropics/skills/tree/main/skills/skill-creator",
+    url="https://github.com/anthropics/skills/tree/main/skills/pdf",
     target_dir="./my_skills",
 )
 print(f"Installed at: {local_path}")
 ```
 
+A failed replacement keeps the previous installation. For private repositories,
+set `GITHUB_TOKEN`. `mirror_url` (CLI: `--mirror`) is a fallback for public file
+downloads and is disabled when a GitHub token is in use.
+
+URLs containing a commit SHA or an encoded branch slash (`feature%2Fcsv`) can
+identify a specific revision when a branch name would otherwise be ambiguous.
+
 ### Create
+
+Choose one input source per call: a conversation or execution trace, GitHub
+repository, PDF/Word/PowerPoint document, or direct prompt. The returned list
+contains generated directory paths. Use `evaluate` for a model assessment of
+the result, or `skillnet validate <skill_dir>` to check its structure locally.
 
 ```python
 # From a conversation or execution trace
 client.create(
-    trajectory_content="User: rename .jpg files to .png\nAgent: Done.",
-    output_dir="./skills",
+    trajectory_content=(
+        "User: Check orders.csv for missing values.\n"
+        "Agent: Read the CSV without modifying it, counted blank cells per column, "
+        "and wrote quality-report.json."
+    ),
+    output_dir="./my_skills",
 )
 
 # From a GitHub repository
 client.create(
     github_url="https://github.com/zjunlp/DeepKE",
-    output_dir="./skills",
+    output_dir="./my_skills",
 )
 
 # From an office document
 client.create(
     office_file="./guide.pdf",
-    output_dir="./skills",
+    output_dir="./my_skills",
 )
 
 # From a direct prompt
-client.create(
-    prompt="A skill for extracting tables from academic PDFs",
-    output_dir="./skills",
+paths = client.create(
+    prompt=(
+        "Create a csv-quality-checker skill that checks CSV files for missing "
+        "values and duplicate rows without modifying the input."
+    ),
+    output_dir="./my_skills",
 )
+print(paths)
 ```
 
-Created skills follow the standard layout:
-
-```text
-skill-name/
-├── SKILL.md
-├── scripts/
-├── references/
-└── assets/
-```
+Generated packages use the [standard skill layout](#skill-package-layout).
 
 ### Evaluate
 
+Assess a local skill directory or a GitHub skill URL. Each dimension contains a
+`level` (`Good`, `Average`, or `Poor`) and a `reason`. The SDK reviews instructions
+and supporting files without executing the skill's scripts.
+
 ```python
-report = client.evaluate("./my_skills/table-extractor")
+report = client.evaluate("./my_skills/pdf")
 
 print(report["safety"]["level"], report["safety"]["reason"])
 print(report["maintainability"]["level"], report["maintainability"]["reason"])
 ```
 
-SkillNet evaluates five dimensions:
+The five dimensions are safety, completeness, executability, maintainability,
+and cost awareness. Ratings are model judgments about the supplied materials.
 
-- Safety
-- Completeness
-- Executability
-- Maintainability
-- Cost awareness
+<details>
+<summary><b>Reading limits and JSON compatibility</b></summary>
 
-### Analyze and route local skills
+Evaluation reads up to 12,000 characters from `SKILL.md`, five script files at
+12,000 characters each, and ten reference files at 4,000 characters each.
+The report includes `prompt_injection_scan`; when files are skipped or truncated,
+its `complete` field is `false` and `scan_issues` explains what was omitted.
 
-`analyze` builds a reusable scenario graph, retrieval index and Wiki from local skill
-folders. `route` retrieves a task-specific subgraph and uses a configured Claude or
-Codex Agent SDK to read source evidence and select up to `k` skills.
+`json_mode="auto"` requests JSON output and retries without that optional API
+parameter if the provider explicitly rejects it. `"on"` requires the parameter;
+`"off"` omits it. All modes parse and validate the five-dimension report.
+This setting is independent of analysis's `AnalysisOptions.json_mode`.
+
+</details>
+
+### Analyze
+
+Extract scenarios and capabilities from local skills, then build a reusable
+relationship graph, retrieval index and Wiki for routing.
 
 ```python
 analysis = client.analyze("./my_skills", output_dir="./skillnet_index")
-result = client.route(
-    "Compute statistics from my existing CSV tables",
-    index_dir=analysis.index_dir,
-    k=5,
-)
-for skill in result.skills:
-    print(skill.name, skill.path, skill.reason)
-print(result.coverage_gaps)
+print(analysis.index_dir)
+print(analysis.skill_count, analysis.relation_counts)
 ```
 
-The graph has two relations: directed `compose_with` for scenario-supported
-combinations, and undirected `similar_to` for comparable capabilities. Relations
-suggest candidates; they do not force co-selection. Routing returns skills and
-source evidence without generating an execution prompt.
+`compose_with` is directed: A's output or established state can support B's next
+operation in a stated scenario. `similar_to` is undirected: two skills offer
+comparable capabilities for a task or subtask, subject to their own constraints.
 
 Place each skill in a direct child folder containing a YAML-frontmatter `SKILL.md`.
 Folder names are stable IDs; display names may repeat. Analysis reads the full
 SKILL.md but does not execute or automatically inspect linked scripts/references.
-The `graph` extra provides NumPy; BM25 requires SQLite FTS5. Agent SDK extras are
-loaded only for routing. Install from this checkout with `pip install -e '.[graph,claude]'`
-or `pip install -e '.[graph,codex]'`.
+The `graph` extra provides NumPy; BM25 requires SQLite FTS5.
+See [endpoint configuration](#analysis-and-routing-endpoints) for the analysis
+model and embedding settings.
 
-Analysis, embeddings and Explorer SDKs have separate endpoint settings. Configure
-them using existing credential environment variables:
+Pass budgets through `options=AnalysisOptions(...)`, imported from `skillnet_ai`.
 
-```bash
-skillnet configure --base-url https://chat.example/v1 --model analysis-model \
-  --api-key-env MY_CHAT_KEY
-skillnet configure --embedding-base-url https://embedding.example/v1 \
-  --embedding-model embedding-model --embedding-api-key-env MY_EMBEDDING_KEY
-skillnet configure --explorer-backend claude --explorer-base-url https://agent.example \
-  --explorer-model explorer-model --explorer-api-key-env MY_AGENT_KEY
-skillnet doctor --json
-```
-
-Analysis uses Chat Completions; embeddings use the embeddings API. The Explorer
-gateway must support the selected SDK's actual protocol, tools and structured
-output. SkillNet does not infer one endpoint from another or load a workspace
-`.env` automatically. `doctor --check-explorer --json` makes an explicitly billable
-SDK tool-reading and structured-output check. Default backend: `claude`; select
-Codex with `route(..., backend="codex")` or `--backend codex`.
-
-For per-call configuration, pass `Endpoint(api_key=..., base_url=..., model=...)`
-as `embedding` or `explorer`. Credentials use Pydantic `SecretStr`. The analyze
-`model` keyword changes only the analysis model, retaining the client's URL/key.
-
-Pass typed budgets through `options=AnalysisOptions(...)` or
-`options=RouteOptions(...)`, imported from `skillnet_ai`:
+<details>
+<summary><b>Analysis options</b></summary>
 
 | Analysis option | Default | Meaning |
 | :-- | :-- | :-- |
 | `max_workers` | `4` | Parallel profile extractions or pair judgments |
-| `candidate_limit` | `8` | Fused capability candidates and aggregated handoff candidates per skill; explicit references are additional |
+| `candidate_limit` | `8` | Per-skill limit for capability matches and a separate limit for scenario handoffs; explicit references are additional |
 | `embedding_batch_size` | `8` | Texts per embedding request |
 | `timeout` | `120` | Model/embedding request timeout in seconds, not a whole-build deadline |
 | `request_retries` | `0` | Transport retries; no content-generation retry loop |
 | `json_mode` | `"on"` | Strict JSON Schema; `"off"` requests JSON through the prompt only |
 | `reasoning_effort` | `None` | Omitted unless explicitly set to a model-supported none/low/medium/high |
 
-For reasoning models such as `gpt-5.4-mini`, set
-`AnalysisOptions(reasoning_effort="medium")` or `--reasoning-effort medium` explicitly.
-Invalid JSON still fails in prompt-only mode; there is no repair or automatic
-protocol downgrade. The analysis option is independent of evaluation's JSON mode.
+Set `AnalysisOptions(reasoning_effort="medium")` (CLI: `--reasoning-effort medium`)
+when your model supports that setting. If your endpoint does not support strict
+JSON Schema output, choose `json_mode="off"` explicitly; the response must still
+match the required schema.
+
+</details>
+
+`AnalysisResult` contains `index_dir`, `skill_count`, `relation_counts`, and
+`cache_hits`. Output defaults to `<skills_dir>/.skillnet`; use `output_dir` to
+choose a location. Rerun analysis after editing skills. Valid cached results are
+reused; `force=True` (CLI: `--force`) recomputes them.
+
+<details>
+<summary><b>Index files and caching</b></summary>
+
+Each successful analysis creates a snapshot containing `graph.json`,
+`embeddings.npz`, `bm25.sqlite`, and a generated `wiki/`. The graph stores skill
+profiles, relationship evidence, and the analyzed `SKILL.md` text. Wiki pages
+are generated from these records without additional model calls.
+
+`cache.sqlite` stores successful profile, embedding, and relationship results,
+including judgments that two skills have no relationship. Cache reuse depends
+on source content, model settings, and explicit prompt versions.
+
+The `CURRENT` pointer changes only after all snapshot files are ready, so a failed
+build leaves the previous index available. Older snapshots can be removed once
+no routing calls are using them.
+
+</details>
+
+### Route
+
+Select up to `k` skills for a task using an index created by `analyze`. Hybrid
+search combines BM25 and vector rankings, then graph expansion adds related
+candidates. A Claude or Codex Agent SDK compares them in a task Wiki containing
+skill profiles, relationships, and source text.
+
+```python
+result = client.route(
+    "Extract tables from my PDF report and check the resulting CSV "
+    "for missing values and duplicate rows.",
+    index_dir="./skillnet_index",
+    k=5,
+)
+for skill in result.skills:
+    print(skill.skill_id, skill.name, skill.path, skill.reason)
+```
+
+Relations guide candidate exploration; the task and each skill's constraints
+determine the final selection. Agent SDK extras are loaded only for routing;
+install `skillnet-ai[graph,claude]` or `skillnet-ai[graph,codex]`.
+See [endpoint configuration](#analysis-and-routing-endpoints) for the Explorer
+and embedding settings.
+
+Pass budgets through `options=RouteOptions(...)`, imported from `skillnet_ai`.
+
+<details>
+<summary><b>Routing options</b></summary>
 
 | Routing option | Default | Meaning |
 | :-- | :-- | :-- |
@@ -290,41 +343,30 @@ protocol downgrade. The analysis option is independent of evaluation's JSON mode
 | `read_limit` | `None` | Defaults to 2 + 2*k; Claude Read-call budget; Codex command budget adds 9 |
 | `reasoning_effort` | `"medium"` | Explorer reasoning: low/medium/high |
 
-`k` is a separate route argument (default 5), an upper bound rather than a quota.
-An empty selection with coverage gaps is valid. Returned order is not execution
-order. Results contain `skills` (ID, name, original path, reason, source-line
-evidence), `coverage_gaps`, and available SDK `usage`; embedding usage is not included.
-The program validates IDs, duplicates, count, source-page reads and citation bounds;
-the semantic quality of relations and selections still depends on the model.
+</details>
 
-Analysis returns `index_dir`, `skill_count`, `relation_counts` and `cache_hits`.
-Output defaults to `skills/.skillnet`. A `CURRENT` pointer identifies the successful
-immutable snapshot containing `graph.json`, `embeddings.npz`, `bm25.sqlite` and
-template-generated `wiki/`. The graph retains full source snapshots, profiles and
-relation evidence; Wiki generation makes no additional model calls.
+`RouteResult` contains `skills` and `usage`. Each skill has a `skill_id`, `name`,
+local `path`, and selection `reason`. Usage comes from the Agent SDK and is
+`None` when unavailable; it does not include the query embedding request.
 
-Successful model results, including negative pair judgments, are stored in one
-`cache.sqlite`. Source fingerprints and explicit model/prompt versions control reuse.
-Run analyze again after editing skills; `force=True` / `--force` recomputes results.
-Routing uses the published graph snapshot and regenerates a temporary task Wiki;
-it does not rescan live sources or use manual edits to generated Wiki pages.
-It requires the same embedding endpoint/model and compatible vector dimensions.
+`k` defaults to 5 and sets an upper limit. The result can contain fewer skills,
+including none, and may cover only part of a task. Dataset, format, and environment
+constraints affect the selection. Related skills are candidates, not mandatory
+selections. The result is a skill set: routing neither executes the task nor
+specifies an execution order.
 
-Publication updates `CURRENT` only after all outputs succeed. Old snapshots remain
-for in-flight readers and can be removed when no readers use them. Failed model
-calls, damaged indexes and SDK timeouts produce errors; there is no provider switch,
-Explorer retry or retrieval-only result substituted for failed exploration.
+Routing uses the latest successful analysis snapshot and generates a temporary
+task Wiki. It requires the same embedding endpoint and model used for analysis,
+with compatible vector dimensions. Edit the original skills and rerun `analyze`
+to update the index; editing generated Wiki pages does not update routing.
 
-**Migration to 0.2.0:** remove analyze's `mode` and `save_to_file`, configure embeddings
-and rebuild old graphs. Replace `orchestrate(query, scene=...)` with
-`route(query, index_dir=..., k=...)`. Old aliases, preset scenes and `depend_on`
-relations are removed. Search, download, create and evaluate retain their APIs.
-When changing extraction or relation schemas/semantics, increment the explicit
-versions in `src/skillnet_ai/core/prompts.py` to invalidate obsolete cached results.
+Invalid model responses, damaged indexes, and SDK timeouts raise errors. A failed
+Explorer call does not return a substitute selection based on retrieval rank.
 
 ## CLI
 
-The CLI is installed with the package:
+The CLI is installed with the package. You can also invoke it as
+`python -m skillnet_ai`:
 
 ```bash
 skillnet --help
@@ -336,10 +378,10 @@ skillnet <command> --help
 | Command | What it does | Example |
 | :-- | :-- | :-- |
 | `search` | Search SkillNet | `skillnet search "pdf" --mode vector` |
-| `download` | Install a skill | `skillnet download <url> -d ./skills` |
+| `download` | Install a skill | `skillnet download <url> -d ./my_skills` |
 | `create` | Create a skill package | `skillnet create --prompt "A skill for table extraction"` |
 | `evaluate` | Evaluate a local or remote skill | `skillnet evaluate ./my_skill` |
-| `analyze` | Analyze local skill relationships or scenario graphs | `skillnet analyze ./my_skills` |
+| `analyze` | Build a local scenario graph and index | `skillnet analyze ./my_skills --output-dir ./skillnet_index` |
 | `route` | Select local skills for a task | `skillnet route "analyze my CSV" --index-dir ./skillnet_index` |
 
 ### Search
@@ -363,86 +405,77 @@ skillnet download <url> --mirror https://ghfast.top/
 ### Create
 
 ```bash
-skillnet create ./logs/trajectory.txt -d ./skills
+skillnet create ./logs/trajectory.txt -d ./my_skills
 skillnet create --github https://github.com/owner/repo
 skillnet create --office ./docs/guide.pdf
 skillnet create --prompt "A skill for table extraction"
 skillnet create --office report.pdf --model gpt-4o
 ```
 
+`create` requires exactly one source and checks the generated package structure.
+Add `--evaluate` to run a model assessment after creation. If that assessment
+fails, the command returns a nonzero exit code and retains the generated files
+for inspection or reevaluation. A `Poor` rating is a valid result, not a command
+failure.
+
 ### Evaluate
 
 ```bash
-skillnet evaluate ./my_skills/web_search
+skillnet evaluate ./my_skills/pdf
 skillnet evaluate https://github.com/anthropics/skills/tree/main/skills/algorithmic-art
 skillnet evaluate ./my_skill --category "Development" --model gpt-4o
 ```
 
-### Analyze and route
+### Analyze
 
 ```bash
 skillnet analyze ./my_skills --output-dir ./skillnet_index --json
-skillnet route "Compute statistics from my CSV" --index-dir ./skillnet_index --k 5 --json
 ```
 
-## Agent-facing workflow updates (0.2.0)
+### Route
 
-The [portable skill](../skills/skillnet/SKILL.md) uses this same CLI/SDK across agents.
-See [Windows/macOS setup](../skills/skillnet/references/setup.md).
-Before publication, install this checkout.
-
-```text
-skillnet configure --interactive
-skillnet doctor --json
-skillnet search "csv" --limit 5 --json
-skillnet create --prompt "Check CSV required columns" --evaluate --json
-skillnet validate ./generated_skills/example --json
+```bash
+skillnet route "Check my CSV for missing values and duplicate rows" --index-dir ./skillnet_index --k 5 --json
 ```
 
-`configure` prompts only with `--interactive`; headless callers can use
-`--api-key-env VARIABLE_NAME` or `--api-key-stdin`. Optional user settings live in
-`~/.skillnet/config.json` (override with `SKILLNET_CONFIG`). Resolution is explicit
-arguments → environment → user config → defaults, at runtime. The key is stored
-locally in plaintext with user-file permissions; keep this file out of repositories.
-`doctor` is local by default; `--check-network` and potentially billable `--check-llm`
-are opt-in. No model key is needed for search/public download.
+All six commands accept `--json`. Command results use one `{ok, data, error}`
+JSON object on stdout; logs go to stderr. Use this mode when calling the CLI
+from scripts or agents. See the
+[output contract](https://github.com/zjunlp/SkillNet/blob/main/skills/skillnet/references/api-reference.md) for details.
 
-The six workflow commands support `--json`: one `{ok, data, error}` document on stdout, with
-logs on stderr. Creation remains non-evaluating by default; `--evaluate` adds
-structure validation and per-skill model reports. Evaluation failures preserve
-created paths and return a nonzero exit. Poor ratings are valid evaluation results.
-See the [output contract and error recovery](../skills/skillnet/references/api-reference.md).
+## Use with Agents
 
-Downloads now stage complete files before installing. Existing folders require
-`--overwrite` / `client.download(..., overwrite=True)`; failed replacement keeps
-the previous installation. The facade/CLI checks skill structure; the lower-level
-downloader can still retrieve ordinary files. GitHub authentication stays on GitHub
-API requests; configured mirrors are unauthenticated public-file fallbacks only.
-Encoded branch slashes (`feature%2Fcsv`) or commit SHAs disambiguate download URLs.
+The [SkillNet skill](https://github.com/zjunlp/SkillNet/blob/main/skills/skillnet/SKILL.md) gives compatible agents access
+to the same CLI and SDK. Install the complete skill directory with its scripts
+and references; see [installation and configuration](https://github.com/zjunlp/SkillNet/blob/main/skills/skillnet/references/setup.md)
+and [agent-specific setup](https://github.com/zjunlp/SkillNet/blob/main/skills/skillnet/references/platforms.md).
 
-`SkillNetClient` also accepts keyword-only `model`, `skillnet_api_url`, and
-`json_mode`. `evaluate(..., json_mode="off")` disables the optional JSON-mode API
-parameter while retaining JSON parsing and five-dimension schema validation.
-`auto` retries once without that parameter only when the endpoint explicitly
-rejects it; an unsupported temperature can also be removed once. Provider, model
-and account failures never cause an automatic provider switch.
+Use `skillnet validate <skill_dir> --json` to check a skill's structure locally,
+and `skillnet doctor --json` to inspect the environment visible to the agent.
 
-Evaluation reads at most 5 script files, with **12,000 characters per script**
-(increased from 1,200 so ordinary utility scripts can be read completely). The
-script portion is bounded at 60,000 characters; SKILL.md remains capped at 12,000
-and references at 10 files × 4,000 characters. These shared defaults apply to the
-SDK, CLI and agent skill. Truncation or omitted files are reported in
-`prompt_injection_scan.scan_issues` with `complete: false`. Larger inputs can cost
-more tokens; direct `SkillLoader.load_scripts(..., max_chars=...)` callers can
-retain a smaller explicit budget.
+<details>
+<summary><b>Migrating to 0.2.0</b></summary>
+
+Remove analyze's `mode` and `save_to_file`, configure embeddings, and rebuild old
+graphs. Replace `orchestrate(query, scene=...)` with
+`route(query, index_dir=..., k=...)`. The old aliases, preset scenes, and
+`depend_on` relations have been removed. Search, download, create, and evaluate
+retain their public APIs.
+
+</details>
 
 ## Configuration
 
-| Variable | Required for | Default |
+Settings resolve in this order: explicit arguments → environment variables →
+`~/.skillnet/config.json` → defaults. Use `SKILLNET_CONFIG` to select another
+configuration file. The SDK does not load `.env` files automatically; load them
+into your process environment before creating the client.
+
+| Variable | Purpose | Default |
 | :-- | :-- | :-- |
 | `API_KEY` | `create`, `evaluate`, `analyze` | unset |
 | `BASE_URL` | Chat Completions endpoint for create, evaluate and analyze | `https://api.openai.com/v1` |
-| `SKILLNET_MODEL` | Default LLM model | `gpt-4o` |
+| `SKILLNET_MODEL` | Model for create, evaluate, and analyze | `gpt-4o` |
 | `GITHUB_TOKEN` | Private repos or higher GitHub rate limits | unset |
 | `GITHUB_MIRROR` | Public raw-file fallback mirror (disabled with GitHub authentication) | unset |
 | `SKILLNET_API_URL` | Search service base URL | `http://api-skillnet.openkg.cn` |
@@ -474,11 +507,48 @@ $env:BASE_URL = "https://api.openai.com/v1"
 $env:SKILLNET_MODEL = "gpt-4o"
 ```
 
+For an interactive setup, run `skillnet configure --interactive`. It saves
+settings for subsequent SDK and CLI calls. Configuration may contain API keys
+in plaintext; keep it outside version control.
+
+`skillnet doctor --json` inspects configuration and installed dependencies locally.
+Add `--check-network` to check search and GitHub connectivity, `--check-llm` for a
+model request, or `--check-explorer` for an Agent SDK exploration check. The latter
+two use your configured model services and may incur charges.
+
+### Analysis and routing endpoints
+
+Analysis, embeddings, and the Explorer have separate endpoint settings. The
+commands below read secrets from existing environment variables named
+`MY_CHAT_KEY`, `MY_EMBEDDING_KEY`, and `MY_AGENT_KEY`; replace the example URLs
+and model names with those supplied by your providers:
+
+```bash
+skillnet configure --base-url https://chat.example/v1 --model analysis-model \
+  --api-key-env MY_CHAT_KEY
+skillnet configure --embedding-base-url https://embedding.example/v1 \
+  --embedding-model embedding-model --embedding-api-key-env MY_EMBEDDING_KEY
+skillnet configure --explorer-backend claude --explorer-base-url https://agent.example \
+  --explorer-model explorer-model --explorer-api-key-env MY_AGENT_KEY
+skillnet doctor --json
+```
+
+Analysis uses Chat Completions; embeddings use the embeddings API. The Explorer
+gateway must support the selected SDK's protocol, tool calls, and structured
+output. A Chat Completions endpoint alone does not establish SDK compatibility.
+Set all three endpoint configurations explicitly, even when one provider serves
+them all. The default backend is `claude`; select Codex with
+`client.route(..., backend="codex")` or `skillnet route ... --backend codex`.
+
+For per-call configuration, pass `Endpoint(api_key=..., base_url=..., model=...)`
+as `embedding` or `explorer`; import `Endpoint` from `skillnet_ai`. The analyze
+`model` keyword changes only the analysis model, retaining the client's URL and key.
+
 ---
 
 ## Skill Package Layout
 
-Every created or downloaded skill uses the same basic structure:
+A skill package has a `SKILL.md` entry point and optional supporting directories:
 
 ```text
 skill-name/
@@ -488,7 +558,10 @@ skill-name/
 └── assets/           # optional templates, examples, or media
 ```
 
-This layout keeps routing instructions, deterministic helper code, and heavier reference material separate so agents can load only what they need.
+Keep the name, description, and usage instructions in `SKILL.md`. Put executable
+helpers in `scripts/`, detailed guidance in `references/`, and templates or other
+resources in `assets/`. Analysis reads `SKILL.md`; agents can load supporting files
+when they use the selected skill.
 
 ---
 
@@ -505,14 +578,27 @@ flow (`router.py`), index construction/loading/retrieval (`index.py`), Wiki rend
 `core/` contains data contracts, prompts, model requests, configuration, validation
 and the existing injection scanner. It does not import the business modules.
 `interfaces/client.py` and `interfaces/cli.py` expose the Python and CLI entry points.
-Package initializers only declare packages or export entry points. Public imports
-such as `from skillnet_ai import SkillNetClient` and the `skillnet` command remain
-unchanged; previous internal module paths have no forwarding aliases.
+The public Python entry point is `from skillnet_ai import SkillNetClient`; the CLI
+entry point is `skillnet_ai.interfaces.cli:app`.
 
-From this directory, install `pip install -e '.[graph,dev,claude,codex]'`, then run
-`pytest -q`, `mypy` and `python -m build`. The analyze/route tests replace network
-boundaries; ordinary tests do not require model credentials.
+When changing extraction or relation schemas/semantics, increment the explicit
+versions in `src/skillnet_ai/core/prompts.py` to invalidate obsolete cached results.
+
+From the `skillnet-ai/` directory:
+
+```bash
+pip install -e ".[graph,dev,claude,codex]"
+pytest -q
+mypy
+python -m build
+```
+
+Use Ruff to check and format the Python modules you change, with the settings in
+`pyproject.toml`. The test suite uses offline model and Agent SDK fixtures; it does
+not require model credentials. Live routing quality needs a separate check with
+real skills and your configured providers.
 
 ## License
 
-[MIT](LICENSE)
+SkillNet is licensed under [MIT](https://github.com/zjunlp/SkillNet/blob/main/LICENSE).
+Skills from external repositories retain their own licenses.

@@ -378,7 +378,7 @@ def doctor(
     check_explorer: bool = typer.Option(
         False,
         "--check-explorer",
-        help="Run a billable SDK tool-reading and structured-output check.",
+        help="Run a billable SDK exploration and structured-output check.",
     ),
     json_output: bool = typer.Option(False, "--json"),
 ):
@@ -532,7 +532,7 @@ def route(
     max_turns: int = typer.Option(24, "--max-turns", min=1),
     json_output: bool = typer.Option(False, "--json"),
 ):
-    """Choose up to k source-verified skills using a configured Agent SDK."""
+    """Choose up to k task-relevant skills using a configured Agent SDK."""
     try:
         if backend not in {None, "claude", "codex"}:
             raise ValueError("backend must be claude or codex")

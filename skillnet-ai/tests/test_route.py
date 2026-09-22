@@ -36,10 +36,8 @@ def selection(skill_id: str = "stats") -> SkillSelection:
                 {
                     "skill_id": skill_id,
                     "reason": "The user already has CSV.",
-                    "evidence": [{"line": 1}],
                 }
             ],
-            "coverage_gaps": [],
         }
     )
 
@@ -138,12 +136,8 @@ def test_route_selects_from_snapshot(
             (root / f"sources/{key}.md").is_file() for key in ("stats", "extract", "alternative")
         )
         assert json.loads((root / "relations.json").read_text())[0]["source"] == "extract"
-        answer = (
-            selection()
-            if supported
-            else SkillSelection(skills=[], coverage_gaps=["No video editor."])
-        )
-        return Exploration(answer, {"sources/stats.md"})
+        answer = selection() if supported else SkillSelection(skills=[])
+        return Exploration(answer)
 
     monkeypatch.setattr(explorer, "backend_for", lambda backend: SimpleNamespace(explore=explore))
     result = SkillNetClient().route(
@@ -152,27 +146,34 @@ def test_route_selects_from_snapshot(
         options=RouteOptions(seed_limit=1, candidate_limit=3),
     )
     assert [s.skill_id for s in result.skills] == (["stats"] if supported else [])
+    assert set(result.model_dump()) == {"skills", "usage"}
     if supported:
         assert result.skills[0].path == str(index / "original/stats")
+        assert set(result.skills[0].model_dump()) == {"skill_id", "name", "path", "reason"}
         assert not Path(result.skills[0].path).exists()  # Routing uses the source snapshot.
-    else:
-        assert result.coverage_gaps
     cli = CliRunner().invoke(app, ["route", "statistics CSV", "--index-dir", str(index), "--json"])
     assert cli.exit_code == 0 and json.loads(cli.stdout)["ok"] is True
+    assert set(json.loads(cli.stdout)["data"]) == {"skills", "usage"}
+    assert "evidence" not in cli.stdout
 
 
-@pytest.mark.parametrize("problem", ["unread", "unknown", "duplicate"])
+@pytest.mark.parametrize("problem", ["unknown", "duplicate", "limit"])
 def test_route_rejects_unsupported_selection(index: Path, problem: str) -> None:
-    """Selection needs known, unique IDs and an observed original-source read."""
+    """Selection needs known, unique IDs within the requested limit."""
     from skillnet_ai.router.index import load_snapshot
     from skillnet_ai.router.router import validate_selection
 
     answer = selection("missing" if problem == "unknown" else "stats")
     if problem == "duplicate":
         answer.skills *= 2
-    reads = {"index.md"} if problem == "unread" else {"sources/stats.md"}
+    elif problem == "limit":
+        answer.skills.extend(selection("extract").skills)
     with pytest.raises(ValueError):
-        validate_selection(Exploration(answer, reads), load_snapshot(index)[1].skills, 5)
+        validate_selection(
+            Exploration(answer),
+            load_snapshot(index)[1].skills,
+            1 if problem == "limit" else 5,
+        )
 
 
 @pytest.mark.parametrize("problem", ["model", "dimension"])
@@ -194,7 +195,7 @@ def test_embedding_mismatch_fails(
 
 @pytest.mark.parametrize("timeout", [False, True])
 def test_claude_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timeout: bool) -> None:
-    """Exercise SDK options, read hooks, structured output and timeout cleanup."""
+    """Exercise SDK options, tool permissions, structured output and timeout cleanup."""
     sdk = ModuleType("claude_agent_sdk")
     sdk.ClaudeAgentOptions = sdk.HookMatcher = SimpleNamespace
     sdk.ResultMessage = type("ResultMessage", (SimpleNamespace,), {})
@@ -208,6 +209,11 @@ def test_claude_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timeout
             assert options.model == ENDPOINT.model and options.setting_sources == []
             assert options.env["ANTHROPIC_BASE_URL"] == ENDPOINT.base_url
             assert options.output_format["schema"]["additionalProperties"] is False
+            assert set(options.output_format["schema"]["properties"]) == {"skills"}
+            assert set(options.output_format["schema"]["$defs"]["Selection"]["properties"]) == {
+                "skill_id",
+                "reason",
+            }
             if timeout:
                 await asyncio.Event().wait()
             hook = options.hooks["PreToolUse"][0]
@@ -219,7 +225,6 @@ def test_claude_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timeout
             read = {"tool_name": "Read", "tool_input": {"file_path": "sources/stats.md"}}
             allowed = await hook.hooks[0](read, None, {})
             assert allowed["hookSpecificOutput"]["permissionDecision"] == "allow"
-            await options.hooks["PostToolUse"][0].hooks[0](read, None, {})
             yield sdk.ResultMessage(
                 is_error=False,
                 structured_output=selection().model_dump(),
@@ -235,12 +240,12 @@ def test_claude_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timeout
             ClaudeExplorer().explore(tmp_path, "task", 1, ENDPOINT, RouteOptions(timeout=0.05))
     else:
         result = ClaudeExplorer().explore(tmp_path, "task", 1, ENDPOINT, RouteOptions())
-        assert result.pages_read == {"sources/stats.md"} and result.selection == selection()
+        assert result.selection == selection()
         assert result.usage == {"input_tokens": 5}
     assert closed.is_set()
 
 
-@pytest.mark.parametrize("failure", [None, "provider", "timeout"])
+@pytest.mark.parametrize("failure", [None, "provider", "timeout", "outside", "tool"])
 def test_codex_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str | None
 ) -> None:
@@ -267,7 +272,12 @@ def test_codex_session(
                 "type": "commandExecution",
                 "cwd": str(tmp_path),
                 "exitCode": None,
-                "commandActions": [{"type": "read", "path": "sources/stats.md"}],
+                "commandActions": [
+                    {
+                        "type": "unknown" if failure == "tool" else "search",
+                        "path": "../outside" if failure == "outside" else "sources/stats.md",
+                    }
+                ],
             }
             yield event("item/started", {"item": item})
             yield event("item/completed", {"item": {**item, "exitCode": 0}})
@@ -300,6 +310,11 @@ def test_codex_session(
 
         def turn(self, prompt: str, **kwargs: object) -> Turn:
             assert kwargs["output_schema"]["additionalProperties"] is False
+            assert set(kwargs["output_schema"]["properties"]) == {"skills"}
+            assert set(kwargs["output_schema"]["$defs"]["Selection"]["properties"]) == {
+                "skill_id",
+                "reason",
+            }
             return Turn()
 
         def close(self) -> None:
@@ -310,9 +325,15 @@ def test_codex_session(
     monkeypatch.setitem(sys.modules, "openai_codex.types", types)
     options = RouteOptions(timeout=0.05 if failure == "timeout" else 300)
     if failure:
-        with pytest.raises(TimeoutError if failure == "timeout" else RuntimeError):
+        error = {
+            "provider": RuntimeError,
+            "timeout": TimeoutError,
+            "outside": ValueError,
+            "tool": ValueError,
+        }[failure]
+        with pytest.raises(error):
             CodexExplorer().explore(tmp_path, "task", 1, ENDPOINT, options)
     else:
         result = CodexExplorer().explore(tmp_path, "task", 1, ENDPOINT, options)
-        assert result.pages_read == {"sources/stats.md"} and result.selection == selection()
+        assert result.selection == selection()
     assert closed.is_set()

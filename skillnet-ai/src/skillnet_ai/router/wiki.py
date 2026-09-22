@@ -20,7 +20,7 @@ def page_name(skill_id: str) -> str:
 
 
 def source_page(skill_id: str) -> str:
-    """Locate a source page identically across rendering and validation."""
+    """Locate a skill's source page within the generated Wiki."""
 
     return f"sources/{page_name(skill_id)}.md"
 

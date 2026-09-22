@@ -380,7 +380,7 @@ class SkillNetClient:
         embedding: Endpoint | None = None,
         options: RouteOptions | None = None,
     ) -> RouteResult:
-        """Select at most k source-verified skills from a successful analysis.
+        """Select at most k task-relevant skills from a successful analysis.
 
         Explorer and embedding endpoints are configured independently from the
         analysis model. No task execution or execution prompt is generated.

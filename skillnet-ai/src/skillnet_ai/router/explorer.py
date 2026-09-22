@@ -50,7 +50,6 @@ class ClaudeExplorer:
 
         root = root.resolve()
         counts: Counter[str] = Counter()
-        reads: set[str] = set()
         read_limit = options.read_limit or 2 + 2 * k
 
         async def pre_tool(
@@ -74,16 +73,6 @@ class ClaudeExplorer:
                     "permissionDecisionReason": "Read-only task Wiki and tool budget.",
                 }
             }
-
-        async def post_tool(
-            data: "HookInput", _tool_id: str | None, _context: "HookContext"
-        ) -> "HookJSONOutput":
-            arguments = data.get("tool_input", {})
-            if data.get("tool_name") == "Read" and isinstance(arguments, dict):
-                path = (root / str(arguments.get("file_path", ""))).resolve()
-                if path.is_relative_to(root):
-                    reads.add(path.relative_to(root).as_posix())
-            return {}
 
         sdk_options = ClaudeAgentOptions(
             model=endpoint.model,
@@ -111,7 +100,6 @@ class ClaudeExplorer:
             extra_args={"disable-slash-commands": None},
             hooks={
                 "PreToolUse": [HookMatcher(matcher="Read|LS|Glob|Grep", hooks=[pre_tool])],
-                "PostToolUse": [HookMatcher(matcher="Read", hooks=[post_tool])],
             },
             output_format={"type": "json_schema", "schema": SkillSelection.model_json_schema()},
         )
@@ -140,7 +128,7 @@ class ClaudeExplorer:
                             for key, value in (message.usage or {}).items()
                             if isinstance(value, (int, float)) and not isinstance(value, bool)
                         }
-                        result = Exploration(selection, reads, usage or None)
+                        result = Exploration(selection, usage=usage or None)
             if result is None:
                 raise RuntimeError("Claude Explorer did not return a structured result.")
             return result
@@ -151,13 +139,12 @@ class ClaudeExplorer:
             raise TimeoutError(f"Claude Explorer exceeded {options.timeout:g} seconds.") from exc
 
 
-def wiki_reads(item: dict[str, Any], root: Path) -> set[str]:
-    """Audit SDK-parsed commands; only successful file reads count as evidence."""
+def validate_wiki_command(item: dict[str, Any], root: Path) -> None:
+    """Check SDK-parsed command types and paths against the task Wiki."""
 
     cwd = (root / item["cwd"]).resolve()
     if not cwd.is_relative_to(root):
         raise ValueError("Codex command left the task Wiki.")
-    reads: set[str] = set()
     actions = item["commandActions"]
     if not actions:
         raise ValueError("Codex command has no recognized read/search action.")
@@ -170,9 +157,6 @@ def wiki_reads(item: dict[str, Any], root: Path) -> set[str]:
         path = (cwd / value).resolve()
         if not path.is_relative_to(root):
             raise ValueError("Codex command accessed a path outside the task Wiki.")
-        if action["type"] == "read" and item.get("exitCode") == 0 and path.is_relative_to(root):
-            reads.add(path.relative_to(root).as_posix())
-    return reads
 
 
 class CodexExplorer:
@@ -261,7 +245,6 @@ class CodexExplorer:
                     sandbox=sdk.Sandbox.read_only,
                     output_schema=SkillSelection.model_json_schema(),
                 )
-                reads: set[str] = set()
                 command_count = 0
                 response: str | None = None
                 completed = False
@@ -295,14 +278,12 @@ class CodexExplorer:
                                 f"Codex Explorer used an unsupported item: {item['type']}"
                             )
                         if item["type"] == "commandExecution":
-                            observed_reads = wiki_reads(item, root)
+                            validate_wiki_command(item, root)
                             if event.method == "item/started":
                                 command_count += 1
                                 if command_count > read_limit + 9:
                                     turn.interrupt()
                                     raise ValueError("Codex Explorer exceeded its command budget.")
-                            else:
-                                reads.update(observed_reads)
                         elif item["type"] == "agentMessage" and event.method == "item/completed":
                             if item.get("phase") == "final_answer":
                                 response = item["text"]
@@ -323,7 +304,7 @@ class CodexExplorer:
                     raise RuntimeError(
                         "Codex Explorer did not return a completed structured result."
                     )
-                return Exploration(SkillSelection.model_validate_json(response), reads, usage)
+                return Exploration(SkillSelection.model_validate_json(response), usage=usage)
             except BaseException as exc:
                 failed = True
                 if expired.is_set():

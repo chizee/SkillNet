@@ -45,7 +45,7 @@ Business results use one JSON document on stdout:
 | create | `paths` (absolute paths), `validation` (per-path errors/warnings), `evaluations` (per-path `ok`, `report`, `error`) |
 | evaluate | Five-dimension report, retaining additional fields such as `prompt_injection_scan` |
 | analyze | `index_dir`, `skill_count`, `relation_counts`, `cache_hits`; the full graph is in the analysis directory |
-| route | `skills` with IDs, names, original paths, reasons and source-line evidence; `coverage_gaps`, available `usage` |
+| route | `skills` with IDs, names, original paths and reasons; available `usage` |
 
 A failed operation has `ok: false`, `error: {code, message, hint}` and exits 1.
 Partial creation data remains available. Empty search results are successful.

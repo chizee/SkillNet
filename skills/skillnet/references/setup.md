@@ -7,33 +7,28 @@ keep using that command: a pipx installation does not imply that another `python
 interpreter can import the package. Legacy scripts in this skill resolve the CLI
 first and use their own Python only when it contains the SDK.
 
-Version 0.2.0 is the release candidate accompanying this source tree. Before its
-PyPI publication, install from the reviewed SkillNet checkout. Do not repeatedly
-try to install an unavailable release.
-
 ## Isolated installation / 隔离安装
 
 Python 3.10+ is required. If Python is absent, install it from python.org (Windows:
 include the Python launcher). No Node, GPU, graph extras or agent SDK is required.
 
-macOS, from a SkillNet checkout:
+macOS:
 
 ```sh
 python3 -m venv "$HOME/.skillnet/venv"
-"$HOME/.skillnet/venv/bin/python" -m pip install ./skillnet-ai
+"$HOME/.skillnet/venv/bin/python" -m pip install "skillnet-ai>=0.2.0"
 "$HOME/.skillnet/venv/bin/python" -m skillnet_ai --version
 ```
 
-Windows PowerShell, from a SkillNet checkout:
+Windows PowerShell:
 
 ```powershell
 py -3 -m venv "$env:USERPROFILE\.skillnet\venv"
-& "$env:USERPROFILE\.skillnet\venv\Scripts\python.exe" -m pip install .\skillnet-ai
+& "$env:USERPROFILE\.skillnet\venv\Scripts\python.exe" -m pip install "skillnet-ai>=0.2.0"
 & "$env:USERPROFILE\.skillnet\venv\Scripts\python.exe" -m skillnet_ai --version
 ```
 
-After 0.2.0 is published, the install source can be replaced by
-`"skillnet-ai>=0.2.0"`. Existing pipx/uv users can upgrade with their existing tool.
+Existing pipx/uv users can upgrade with their existing tool.
 When the CLI is not on the agent's PATH, use the full virtualenv Python path plus
 `-m skillnet_ai` in place of `skillnet` in subsequent examples. Activation is not
 required. For Linux, use the macOS Python commands.
