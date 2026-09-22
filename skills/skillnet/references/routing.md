@@ -1,6 +1,6 @@
 # Analyze and route local skills
 
-Analysis requires skillnet-ai 0.2.0 with the `graph` extra.
+Analysis requires skillnet-ai 0.1.1 with the `graph` extra.
 Routing additionally requires either the `claude` or `codex` extra.
 Use the user's existing model configuration; do not read agent login credentials.
 
@@ -26,5 +26,5 @@ SDK call as a successful empty selection or substitute a retrieval-only result.
 `skillnet doctor --json` is offline. `--check-explorer` is an explicit, billable
 check of the chosen SDK's exploration and structured-output behavior.
 
-Version 0.2.0 removes basic/scenario mode switches, preset scenes and orchestrate.
+Version 0.1.1 removes basic/scenario mode switches, preset scenes and orchestrate.
 Old graphs must be rebuilt; no execution prompt is returned.

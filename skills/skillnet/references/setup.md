@@ -2,7 +2,7 @@
 
 ## Reuse an existing installation
 
-Run `skillnet --version`. This skill requires **skillnet-ai 0.2.0+**. If it works,
+Run `skillnet --version`. This skill requires **skillnet-ai 0.1.1+**. If it works,
 keep using that command: a pipx installation does not imply that another `python`
 interpreter can import the package. Legacy scripts in this skill resolve the CLI
 first and use their own Python only when it contains the SDK.
@@ -16,7 +16,7 @@ macOS:
 
 ```sh
 python3 -m venv "$HOME/.skillnet/venv"
-"$HOME/.skillnet/venv/bin/python" -m pip install "skillnet-ai>=0.2.0"
+"$HOME/.skillnet/venv/bin/python" -m pip install "skillnet-ai>=0.1.1"
 "$HOME/.skillnet/venv/bin/python" -m skillnet_ai --version
 ```
 
@@ -24,7 +24,7 @@ Windows PowerShell:
 
 ```powershell
 py -3 -m venv "$env:USERPROFILE\.skillnet\venv"
-& "$env:USERPROFILE\.skillnet\venv\Scripts\python.exe" -m pip install "skillnet-ai>=0.2.0"
+& "$env:USERPROFILE\.skillnet\venv\Scripts\python.exe" -m pip install "skillnet-ai>=0.1.1"
 & "$env:USERPROFILE\.skillnet\venv\Scripts\python.exe" -m skillnet_ai --version
 ```
 

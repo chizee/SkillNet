@@ -7,8 +7,8 @@ description: >-
   or fill a clearly identified capability gap with a reusable skill.
   中文：搜索、下载、创建、评估、分析与路由技能。不用于普通代码修改或仅阅读文档。
 metadata:
-  version: "0.2.0"
-  requirements: "Python 3.10+, skillnet-ai 0.2.0+, network; model API for create/evaluate/analyze; graph extra and embedding API for analyze/route; Claude or Codex SDK for route"
+  version: "0.1.1"
+  requirements: "Python 3.10+, skillnet-ai 0.1.1+, network; model API for create/evaluate/analyze; graph extra and embedding API for analyze/route; Claude or Codex SDK for route"
 ---
 
 # SkillNet
@@ -33,7 +33,7 @@ to create a skill; it need not meet an additional complexity threshold.
 
 ## Runtime and configuration
 
-Use the installed `skillnet` CLI (version 0.2.0+). Prefer `--json` for reliable paths,
+Use the installed `skillnet` CLI (version 0.1.1+). Prefer `--json` for reliable paths,
 URLs and error information. If the command is missing, outdated, or its interpreter
 is uncertain, read [setup.md](references/setup.md). `python -m skillnet_ai` is an
 alternative when using the Python environment that actually contains the SDK.

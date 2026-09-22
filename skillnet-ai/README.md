@@ -454,7 +454,7 @@ Use `skillnet validate <skill_dir> --json` to check a skill's structure locally,
 and `skillnet doctor --json` to inspect the environment visible to the agent.
 
 <details>
-<summary><b>Migrating to 0.2.0</b></summary>
+<summary><b>Migrating to 0.1.1</b></summary>
 
 Remove analyze's `mode` and `save_to_file`, configure embeddings, and rebuild old
 graphs. Replace `orchestrate(query, scene=...)` with

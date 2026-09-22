@@ -1,6 +1,6 @@
 # CLI and SDK reference
 
-Requires skillnet-ai 0.2.0+. Run `skillnet <command> --help` for complete flags.
+Requires skillnet-ai 0.1.1+. Run `skillnet <command> --help` for complete flags.
 The Python facade is `from skillnet_ai import SkillNetClient`; it uses the same
 runtime configuration as the CLI. Existing list/path/report SDK return types are
 preserved. `python -m skillnet_ai` exposes the same CLI.
