@@ -41,6 +41,10 @@ SkillNet provides unified infrastructure for the agent skill lifecycle:
 
 ## News
 
+- **[2026-09-22]** [**skillnet-ai 0.1.1**](https://pypi.org/project/skillnet-ai/0.1.1/)
+  is available on PyPI, with updated local skill analysis and task routing through
+  Claude or Codex Agent SDKs.
+
 - **[2026-08-20]** The updated [**SkillNet report**](https://arxiv.org/abs/2603.04448) presents
   **SkillNet-Gym**, with executable benchmarks for skill construction, retrieval, and composition,
   and **SkillNet-Fabric**, which routes tasks through a Wiki built for each task.
@@ -89,16 +93,19 @@ https://github.com/user-attachments/assets/9f9d35b0-36fd-4d7d-a072-39afa380b241
 Requires Python 3.10 or newer.
 
 ```bash
-pip install skillnet-ai
+pip install -U skillnet-ai
 ```
 
-Install optional dependencies for analysis and routing:
+Choose optional dependencies for analysis and routing. Each command includes the base package:
 
 ```bash
-pip install "skillnet-ai[graph]"         # scenario analysis
-pip install "skillnet-ai[graph,claude]"  # analysis and routing via Claude
-pip install "skillnet-ai[graph,codex]"   # analysis and routing via Codex
+pip install -U "skillnet-ai[graph]"         # scenario analysis
+pip install -U "skillnet-ai[graph,claude]"  # analysis and routing via Claude
+pip install -U "skillnet-ai[graph,codex]"   # analysis and routing via Codex
 ```
+
+Use `skillnet-ai[graph,claude,codex]` to install both routing backends. Select one
+with `backend="claude"` or `backend="codex"` (CLI: `--backend`); Claude is the default.
 
 ### Initialize
 
@@ -252,9 +259,10 @@ check without a model call.
 ## Configuration
 
 Search and public downloads need no API key. Create, evaluate, and analyze use an
-OpenAI-compatible Chat Completions endpoint. Analyze also needs an embedding
-endpoint; route uses that same embedding endpoint and a separately configured
-Claude or Codex Agent SDK.
+OpenAI-compatible Chat Completions endpoint. Analyze and route generate vectors
+through the configured Embedding API and use NumPy to index and compare them
+locally. Route uses the same embedding endpoint and model as analyze, plus a
+separately configured Claude or Codex Agent SDK.
 
 Settings resolve in this order: explicit arguments → environment variables →
 user configuration → defaults. Load any `.env` file into your environment before
