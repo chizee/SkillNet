@@ -41,19 +41,16 @@ For the full project overview, research context, integrations, and roadmap, see 
 Requires Python 3.10 or newer.
 
 ```bash
-pip install -U skillnet-ai
+pip install skillnet-ai
 ```
 
-Choose optional dependencies for analysis and routing. Each command includes the base package:
+Install optional dependencies for analysis and routing:
 
 ```bash
-pip install -U "skillnet-ai[graph]"         # scenario analysis
-pip install -U "skillnet-ai[graph,claude]"  # analysis and routing via Claude
-pip install -U "skillnet-ai[graph,codex]"   # analysis and routing via Codex
+pip install "skillnet-ai[graph]"         # scenario analysis
+pip install "skillnet-ai[graph,claude]"  # analysis and routing via Claude
+pip install "skillnet-ai[graph,codex]"   # analysis and routing via Codex
 ```
-
-Use `skillnet-ai[graph,claude,codex]` to install both routing backends. Select one
-with `backend="claude"` or `backend="codex"` (CLI: `--backend`); Claude is the default.
 
 ---
 
@@ -258,8 +255,7 @@ comparable capabilities for a task or subtask, subject to their own constraints.
 Place each skill in a direct child folder containing a YAML-frontmatter `SKILL.md`.
 Folder names are stable IDs; display names may repeat. Analysis reads the full
 SKILL.md but does not execute or automatically inspect linked scripts/references.
-Vectors are generated through the configured Embedding API. The `graph` extra
-provides NumPy to store and compare those vectors locally; BM25 requires SQLite FTS5.
+The `graph` extra provides NumPy; BM25 requires SQLite FTS5.
 See [endpoint configuration](#analysis-and-routing-endpoints) for the analysis
 model and embedding settings.
 
