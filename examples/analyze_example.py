@@ -1,114 +1,168 @@
-"""
-Skill Relationship Analysis Example - Using SkillNetClient
+"""Scenario Analysis Example - Using SkillNetClient.
 
-Requires skillnet-ai[graph] and configured analysis and embedding endpoints.
+Run from the repository root:
+    python -m pip install -e "./skillnet-ai[graph]"
+    python examples/analyze_example.py
+    python examples/analyze_example.py ./my_skills --output-dir ./my_index
+
+Configure API_KEY, BASE_URL, SKILLNET_MODEL and EMBEDDING_API_KEY,
+EMBEDDING_BASE_URL, EMBEDDING_MODEL, or use saved SkillNet settings.
+See skillnet-ai/README.md for model configuration.
+
+Without a skills directory, create/update four illustrative SKILL.md files in
+./demo_analysis_skills. Only their instructions are analyzed; no PDF or CSV is
+processed. Model and embedding API calls may incur costs. Repeated analysis
+reuses cached model results when their inputs are unchanged.
 """
+
+import argparse
 import json
-import os
-import shutil
+from pathlib import Path
 
 from skillnet_ai import SkillNetClient
 
-# Define directory for demonstration
-DEMO_SKILLS_DIR = "./demo_skills_library"
+# Concrete handoffs and two alternative implementations of the same capability.
+DEMO_SKILLS = {
+    "pdf-table-to-csv": """---
+name: pdf-table-to-csv
+description: Extract a transaction table from a text-based PDF into a UTF-8 CSV.
+---
+# PDF transaction table to CSV
 
-def setup_demo_environment() -> None:
-    """
-    Helper to create a few dummy skills locally so the analyzer has something to scan.
-    In a real scenario, you would point this to your actual skills directory.
-    """
-    if os.path.exists(DEMO_SKILLS_DIR):
-        shutil.rmtree(DEMO_SKILLS_DIR)
-    os.makedirs(DEMO_SKILLS_DIR)
+Use when a text-based PDF contains one transaction table with a header row and
+an amount column. All amounts must be decimal numbers in the same currency.
 
-    # Define some dummy skills with descriptions that imply relationships
-    dummy_skills = [
-        {
-            "name": "python_runtime",
-            "desc": "Sets up the base Python 3.10 environment with standard libraries. This is the foundational layer."
-        },
-        {
-            "name": "code_interpreter",
-            "desc": "Executes arbitrary Python code snippets safely. It strictly REQUIRES the 'python_runtime' to be installed and active to function."
-        },
-        {
-            "name": "code_review_agent",
-            "desc": "A high-level AI agent that manages the entire Pull Request review workflow, including syntax checking, logic analysis, and comment generation."
-        },
-        {
-            "name": "linter_tool",
-            "desc": "A specific tool that checks code style (PEP8). It is a built-in sub-component/module of the larger 'code_review_agent'."
-        },
-        {
-            "name": "git_diff_reader",
-            "desc": "Extracts changes between two git commits."
-        },
-        {
-            "name": "patch_generator",
-            "desc": "Generates a fix patch file. It is typically used immediately AFTER 'git_diff_reader' has identified the bugs."
-        },
-        {
-            "name": "postgres_client",
-            "desc": "A database client for connecting to PostgreSQL databases to execute SQL queries."
-        },
-        {
-            "name": "mysql_client",
-            "desc": "A database client for connecting to MySQL databases. It performs the same function as 'postgres_client' and can be used as a substitute."
-        }
-    ]
+1. Open the PDF with Python and pdfplumber. Extract the table, retaining the
+   column names, row order and cell values. Use empty strings for empty cells.
+2. Write transactions.csv with csv.writer, UTF-8 encoding and a header row.
+3. Return the CSV path for subsequent quality checks and amount calculations.
 
-    # Create skill folders and SKILL.md files
-    for skill in dummy_skills:
-        skill_path = os.path.join(DEMO_SKILLS_DIR, skill["name"])
-        os.makedirs(skill_path, exist_ok=True)
-        with open(os.path.join(skill_path, "SKILL.md"), "w", encoding="utf-8") as f:
-            f.write(f"---\nname: {skill['name']}\ndescription: {skill['desc']}\n---\n")
-            f.write(f"# {skill['name']}\n\n{skill['desc']}")
-    
-    print(f"📦 Created {len(dummy_skills)} dummy skills in '{DEMO_SKILLS_DIR}' for analysis.")
+Preserve the original PDF. Report ambiguous table boundaries or headers and
+stop rather than guessing. Scanned PDFs require OCR outside this skill.
+This step preserves missing values and duplicate rows for later inspection;
+it does not validate, deduplicate or calculate transaction statistics.
+""",
+    "csv-quality-checker": """---
+name: csv-quality-checker
+description: Check a transaction CSV and produce a read-only data quality report.
+---
+# CSV quality check
+
+Input: a UTF-8 transaction CSV with a header row and an amount column.
+Use Python standard-library csv, decimal and json modules.
+
+1. Read the CSV and check row widths, missing cells and duplicate rows.
+2. Check that each amount parses as a finite Decimal. Record invalid values.
+3. Write quality-report.json with the CSV path, row count, issue counts and
+   passed=true only when at least one data row exists and every check passes.
+4. Return the report and unchanged CSV paths. A passing report allows amount
+   summarizers to use this CSV; otherwise the user must resolve the issues.
+
+Never fill, delete, deduplicate or overwrite source data. Report malformed CSV
+or a missing amount column as a failed check. Do not compute transaction means.
+""",
+    "csv-amount-summary": """---
+name: csv-amount-summary
+description: Calculate transaction count, total and mean using Python's standard library.
+---
+# Transaction amount summary
+
+Input: a UTF-8 CSV with an amount column and a passing quality-report.json
+for that unchanged file. Amounts must be finite decimals in one currency.
+
+1. Read the report with json; confirm its CSV path and passed=true status.
+2. Read the CSV with csv.DictReader and parse amounts using decimal.Decimal.
+3. Calculate count, total and arithmetic mean; return them in a JSON report,
+   representing decimal results as strings. Round the mean to two decimal
+   places with ROUND_HALF_UP.
+
+Stop on a failed or missing quality report, empty CSV or invalid amount.
+Keep inputs unchanged. Use only the Python standard library. This skill
+accepts user-provided transaction CSVs and performs no currency conversion.
+""",
+    "csv-amount-summary-pandas": """---
+name: csv-amount-summary-pandas
+description: Calculate transaction count, total and mean in a pandas workflow.
+---
+# Transaction amount summary with pandas
+
+Input: a UTF-8 CSV with an amount column and a passing quality-report.json
+for that unchanged file. Amounts must be finite decimals in one currency.
+
+1. Read the report with json; confirm its CSV path and passed=true status.
+2. Load the CSV with pandas.read_csv(dtype=str, keep_default_na=False).
+3. Convert amounts to decimal.Decimal and calculate count, total and mean.
+   Return a JSON report with decimal results as strings; round the mean to
+   two decimal places with ROUND_HALF_UP.
+
+Requires pandas in addition to Python. Stop on a failed or missing quality
+report, empty CSV or invalid amount. Keep inputs unchanged. This skill accepts
+user-provided transaction CSVs and performs no currency conversion.
+""",
+}
+
+
+def setup_demo_environment(skills_dir: Path) -> None:
+    """Write the sample skill instructions, preserving existing analysis artifacts."""
+    for name, source in DEMO_SKILLS.items():
+        directory = skills_dir / name
+        directory.mkdir(parents=True, exist_ok=True)
+        (directory / "SKILL.md").write_text(source, encoding="utf-8")
+    print(f"📦 Prepared {len(DEMO_SKILLS)} demo skills in {skills_dir.resolve()}")
 
 
 def main() -> None:
-    # 1. Setup demo data (Optional: remove if you have your own skills folder)
-    setup_demo_environment()
-
-    # 2. Initialize client
-    client = SkillNetClient(
-        api_key=os.getenv("API_KEY"),
-        base_url=os.getenv("BASE_URL", "https://api.openai.com/v1")
+    """Analyze a local library and display scenario-specific relationships."""
+    parser = argparse.ArgumentParser(description="Build and inspect a SkillNet analysis index.")
+    parser.add_argument(
+        "skills_dir",
+        nargs="?",
+        type=Path,
+        help="Existing skill library; omit to create demo skills.",
     )
+    parser.add_argument(
+        "--output-dir",
+        type=Path,
+        default=Path("./demo_skillnet_index"),
+        help="Analysis index directory (default: ./demo_skillnet_index).",
+    )
+    args = parser.parse_args()
 
-    # 3. Run Analysis
-    print("\n🚀 Analyzing relationships between skills...")
-    try:
-        analysis = client.analyze(skills_dir=DEMO_SKILLS_DIR)
-        snapshot_name = (analysis.index_dir / "CURRENT").read_text(encoding="utf-8").strip()
-        graph_path = analysis.index_dir / snapshot_name / "graph.json"
-        relationships = json.loads(graph_path.read_text(encoding="utf-8"))["relations"]
+    skills_dir = args.skills_dir
+    if skills_dir is None:
+        skills_dir = Path("./demo_analysis_skills")
+        setup_demo_environment(skills_dir)
 
-        # 4. Display Results
-        if not relationships:
-            print("No relationships detected.")
-            return
+    # Model and embedding configuration comes from the environment or saved settings.
+    client = SkillNetClient()
+    print("\n🔍 Extracting scenarios and analyzing skill relationships...")
+    analysis = client.analyze(skills_dir=skills_dir, output_dir=args.output_dir)
+    print(f"Skills analyzed: {analysis.skill_count}")
+    print(f"Relations: {analysis.relation_counts}")
+    print(f"Cache hits: {analysis.cache_hits}")
+    print(f"Index: {analysis.index_dir}")
 
-        print(f"\n✅ Analysis Complete! Found {len(relationships)} connections:\n")
-        
-        # Simple header
-        print(f"{'Source':<20} | {'Relationship':<15} | {'Target':<20} | {'Reasoning'}")
-        print("-" * 100)
+    # CURRENT identifies the last successfully published snapshot.
+    snapshot_name = (analysis.index_dir / "CURRENT").read_text(encoding="utf-8").strip()
+    snapshot = analysis.index_dir / snapshot_name
+    graph = json.loads((snapshot / "graph.json").read_text(encoding="utf-8"))
+    print("\ncompose_with: predecessor -> successor under the stated conditions.")
+    print("similar_to: comparable capabilities; check constraints before substituting.")
+    if not graph["relations"]:
+        print("No supported relationships found.")
+    for relation in graph["relations"]:
+        arrow = "->" if relation["type"] == "compose_with" else "<->"
+        print(f"\n{relation['source']} {arrow} {relation['target']} ({relation['type']})")
+        for context in relation["contexts"]:
+            print(f"  Scenario: {context['scenario']}")
+            print(f"  Explanation: {context['explanation']}")
+            for condition in context["conditions"]:
+                print(f"  Condition: {condition}")
 
-        for relationship in relationships:
-            source = relationship.get('source', 'N/A')
-            rtype = relationship.get('type', 'N/A')
-            target = relationship.get('target', 'N/A')
-            reason = relationship['contexts'][0]['explanation'][:40] + "..."
+    print(f"\n📄 Full graph: {snapshot / 'graph.json'}")
+    print(f"📚 Wiki: {snapshot / 'wiki'}")
+    print("Reuse this index with examples/route_example.py --index-dir <index directory>.")
 
-            print(f"{source:<20} | {rtype:<15} | {target:<20} | {reason}")
-
-        print(f"\n💾 relationships saved to: {graph_path}")
-
-    except Exception as e:
-        print(f"❌ Analysis failed: {e}")
 
 if __name__ == "__main__":
     main()
