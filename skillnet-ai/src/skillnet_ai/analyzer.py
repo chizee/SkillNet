@@ -1,6 +1,5 @@
 """Scenario analysis: source profiles, candidate pairs and two-type skill relations."""
 
-import hashlib
 import json
 import logging
 import re
@@ -17,6 +16,7 @@ from typing import Any
 
 import numpy as np
 
+from skillnet_ai.core.library import read_source
 from skillnet_ai.core.llm import embed, structured_call
 from skillnet_ai.core.models import (
     AnalysisOptions,
@@ -35,7 +35,7 @@ from skillnet_ai.core.prompts import (
     RELATION_PROMPT,
     RELATION_VERSION,
 )
-from skillnet_ai.core.validation import parse_frontmatter, validate_citations, validate_profile
+from skillnet_ai.core.validation import validate_citations, validate_profile
 from skillnet_ai.router.index import (
     Matrix,
     build_bm25,
@@ -212,22 +212,7 @@ def read_skills(root: Path) -> list[SkillSource]:
     for path in sorted(root.glob("*/SKILL.md")):
         if path.parent.name.startswith("."):
             continue
-        source = path.read_text(encoding="utf-8-sig")
-        if not source.strip():
-            raise ValueError(f"Empty skill source: {path}")
-        metadata = parse_frontmatter(source)
-        name = metadata.get("name") or path.parent.name
-        if not isinstance(name, str):
-            raise ValueError(f"Skill name must be a string: {path}")
-        skills.append(
-            SkillSource(
-                skill_id=path.parent.name,
-                name=name,
-                path=str(path.parent.resolve()),
-                source=source,
-                content_hash=hashlib.sha256(source.encode()).hexdigest(),
-            )
-        )
+        skills.append(read_source(path))
     if not skills:
         raise ValueError("No SKILL.md files found in direct child directories.")
     return skills

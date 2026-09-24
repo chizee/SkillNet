@@ -26,6 +26,29 @@ app = typer.Typer(help="SkillNet AI CLI Tool", no_args_is_help=True)
 console = Console()
 
 
+@app.command()
+def ui(
+    skills_dir: Path | None = typer.Option(
+        None, "--skills-dir", help="Open a local skills folder."
+    ),
+    port: int = typer.Option(8765, min=1, max=65535),
+    browser: bool = typer.Option(True, "--browser/--no-browser"),
+    dev: bool = typer.Option(False, help="Allow the Vite development UI on localhost:5173."),
+):
+    """Browse local skills and analysis results in your browser; no model calls."""
+    try:
+        from skillnet_ai.web.server import serve
+    except ModuleNotFoundError as exc:
+        if exc.name not in {"fastapi", "starlette", "uvicorn"}:
+            raise
+        console.print('Install the web extra: pip install "skillnet-ai[ui]"', markup=False)
+        raise typer.Exit(1) from exc
+    try:
+        serve(skills_dir=skills_dir, port=port, open_browser=browser, dev=dev)
+    except (OSError, ValueError) as exc:
+        _fail(exc, False)
+
+
 class RedactedFormatter(logging.Formatter):
     def format(self, record):
         return redact(super().format(record))

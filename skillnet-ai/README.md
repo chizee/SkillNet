@@ -602,3 +602,16 @@ real skills and your configured providers.
 
 SkillNet is licensed under [MIT](https://github.com/zjunlp/SkillNet/blob/main/LICENSE).
 Skills from external repositories retain their own licenses.
+
+## Browser interface
+
+Install `pip install "skillnet-ai[ui]"` and run `skillnet ui` to browse local skill
+folders and saved analysis results. Use `--skills-dir /absolute/path/to/skills`
+to open a folder immediately, or `--no-browser` to start without opening a tab.
+The service listens only on loopback and makes no model calls.
+
+The implementation lives in `src/skillnet_ai/web/`: Python serves local data and
+compiled assets, while `web/ui/` contains the React source. See the
+[interface guide](src/skillnet_ai/web/ui/README.md) for source development, data
+limits and building the website before packaging. Wheel and source releases
+include compiled assets; end users do not need Node.js.

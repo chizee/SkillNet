@@ -14,7 +14,8 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from skillnet_ai.core.models import AnalyzedSkill, GraphSnapshot
+from skillnet_ai.core.library import load_snapshot as load_snapshot
+from skillnet_ai.core.models import AnalyzedSkill
 
 Matrix = NDArray[np.float32]
 
@@ -32,28 +33,6 @@ def publish(index_dir: Path, staging: Path) -> None:
         os.replace(pointer, index_dir / "CURRENT")
     finally:
         pointer.unlink(missing_ok=True)
-
-
-def load_snapshot(index_dir: Path) -> tuple[Path, GraphSnapshot]:
-    """Load the published snapshot once; do not inspect or hash live skill sources."""
-
-    try:
-        name = (index_dir / "CURRENT").read_text(encoding="utf-8").strip()
-        if not name or Path(name).name != name or not name.startswith("snapshot-"):
-            raise ValueError("invalid snapshot pointer")
-        root = index_dir / name
-        graph = GraphSnapshot.model_validate_json((root / "graph.json").read_text("utf-8"))
-    except (OSError, ValueError) as exc:
-        raise ValueError("Cannot load analysis snapshot; run skillnet analyze again.") from exc
-    ids = [skill.skill_id for skill in graph.skills]
-    known_ids = set(ids)
-    if not ids or len(known_ids) != len(ids):
-        raise ValueError("Analysis must contain unique, nonempty skill identities.")
-    if any(
-        edge.source not in known_ids or edge.target not in known_ids for edge in graph.relations
-    ):
-        raise ValueError("Analysis relation references an unknown skill.")
-    return root, graph
 
 
 def profile_text(skill: AnalyzedSkill) -> str:

@@ -1,0 +1,10 @@
+recursive-include src/skillnet_ai/web/static *
+include src/skillnet_ai/web/ui/package.json
+include src/skillnet_ai/web/ui/package-lock.json
+include src/skillnet_ai/web/ui/tsconfig.json
+include src/skillnet_ai/web/ui/vite.config.ts
+include src/skillnet_ai/web/ui/index.html
+include src/skillnet_ai/web/ui/README.md
+include src/skillnet_ai/web/ui/.prettierrc.json
+recursive-include src/skillnet_ai/web/ui/src *.ts *.tsx *.css
+recursive-include src/skillnet_ai/web/ui/public *.png
