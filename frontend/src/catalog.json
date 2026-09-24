@@ -1,0 +1,31 @@
+{
+  "snapshots": [
+    {
+      "id": "analysis:alfworld-analysis.json",
+      "file": "alfworld-analysis.json",
+      "title": "ALFWorld · Analysis results",
+      "label": "ALFWorld (5/37)",
+      "collection": "ALFWorld",
+      "skillCount": 5,
+      "librarySkillCount": 37
+    },
+    {
+      "id": "analysis:scienceworld-analysis.json",
+      "file": "scienceworld-analysis.json",
+      "title": "ScienceWorld · Analysis results",
+      "label": "ScienceWorld (5/61)",
+      "collection": "ScienceWorld",
+      "skillCount": 5,
+      "librarySkillCount": 61
+    },
+    {
+      "id": "analysis:webshop-analysis.json",
+      "file": "webshop-analysis.json",
+      "title": "WebShop · Analysis results",
+      "label": "WebShop (23/23)",
+      "collection": "WebShop",
+      "skillCount": 23,
+      "librarySkillCount": 23
+    }
+  ]
+}

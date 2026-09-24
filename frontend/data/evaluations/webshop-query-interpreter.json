@@ -1,0 +1,34 @@
+{
+  "status": "ok",
+  "elapsed_seconds": 5.67,
+  "report": {
+    "safety": {
+      "level": "Good",
+      "reason": "The skill is limited to interpreting shopping queries into structured search parameters and does not describe destructive, security-bypassing, or sensitive actions. The provided content and automated pre-screen show no injection artifacts or unsafe tool use."
+    },
+    "completeness": {
+      "level": "Average",
+      "reason": "The core workflow is clear: parse product type, attributes, and constraints, then format them into a template and hand off to a search skill. However, it gives limited edge-case handling beyond a few examples and does not specify how to resolve ambiguous queries beyond general references in the extra reference file."
+    },
+    "executability": {
+      "level": "Good",
+      "reason": "This is an instruction-only workflow that an agent can follow using typical LLM capabilities without needing scripts. The steps, output template, and examples are concrete enough to produce usable search parameters from user shopping text."
+    },
+    "maintainability": {
+      "level": "Good",
+      "reason": "The scope is narrow and modular, focused on extracting structured fields for downstream search. The template and example patterns make it easy to adjust or compose with other webshop skills."
+    },
+    "cost_awareness": {
+      "level": "Good",
+      "reason": "The task is a lightweight text-parsing step with no external services, large datasets, or repeated loops implied. The description naturally limits itself to a single query interpretation before handoff."
+    },
+    "prompt_injection_scan": {
+      "clean": true,
+      "max_severity": null,
+      "count": 0,
+      "findings": [],
+      "complete": true,
+      "scan_issues": []
+    }
+  }
+}

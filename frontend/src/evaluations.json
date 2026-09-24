@@ -1,0 +1,60 @@
+{
+  "webshop-product-selector": {
+    "dimensions": {
+      "safety": {
+        "level": "Good",
+        "reason": "The skill is narrowly scoped to selecting a product from a search results page and clicking its ID; it does not instruct destructive, credential-related, or security-bypassing actions. The only caveat is that the click target must match the observation exactly, which is a normal UI constraint rather than a safety risk."
+      },
+      "completeness": {
+        "level": "Average",
+        "reason": "The decision process, heuristic, and final action format are clearly described, but it assumes a lot about the surrounding WebShop observation and does not specify fallback handling for ties beyond price or for missing/ambiguous product fields. It also references a bundled selector.py script, but no actual script is provided in the evidence."
+      },
+      "executability": {
+        "level": "Average",
+        "reason": "An agent can follow the text instructions to choose a product and issue click[product_id], but the skill depends on observation formatting and exact click values that are only partially specified in the references. The cited lowercase/uppercase mismatch note adds uncertainty about the exact action token the environment expects."
+      },
+      "maintainability": {
+        "level": "Good",
+        "reason": "The scope is narrow and modular: it selects one item from a shortlist using a simple heuristic and then triggers a single navigation action. The inputs and output action are well bounded, making it easy to adapt the scoring heuristic or selection rules."
+      },
+      "cost_awareness": {
+        "level": "Good",
+        "reason": "The workflow is lightweight and limited to evaluating a shortlist of products on one page, with no loops, external services, or heavy computation described. The selection heuristic is simple and bounded by the current observation."
+      }
+    },
+    "injectionScan": {
+      "clean": true,
+      "complete": true,
+      "count": 0
+    }
+  },
+  "webshop-query-interpreter": {
+    "dimensions": {
+      "safety": {
+        "level": "Good",
+        "reason": "The skill is limited to interpreting shopping queries into structured search parameters and does not describe destructive, security-bypassing, or sensitive actions. The provided content and automated pre-screen show no injection artifacts or unsafe tool use."
+      },
+      "completeness": {
+        "level": "Average",
+        "reason": "The core workflow is clear: parse product type, attributes, and constraints, then format them into a template and hand off to a search skill. However, it gives limited edge-case handling beyond a few examples and does not specify how to resolve ambiguous queries beyond general references in the extra reference file."
+      },
+      "executability": {
+        "level": "Good",
+        "reason": "This is an instruction-only workflow that an agent can follow using typical LLM capabilities without needing scripts. The steps, output template, and examples are concrete enough to produce usable search parameters from user shopping text."
+      },
+      "maintainability": {
+        "level": "Good",
+        "reason": "The scope is narrow and modular, focused on extracting structured fields for downstream search. The template and example patterns make it easy to adjust or compose with other webshop skills."
+      },
+      "cost_awareness": {
+        "level": "Good",
+        "reason": "The task is a lightweight text-parsing step with no external services, large datasets, or repeated loops implied. The description naturally limits itself to a single query interpretation before handoff."
+      }
+    },
+    "injectionScan": {
+      "clean": true,
+      "complete": true,
+      "count": 0
+    }
+  }
+}

@@ -74,6 +74,20 @@ Explore the public skill library on [skillnet.openkg.cn](http://skillnet.openkg.
 
 The site also introduces [SkillNet-Gym](http://skillnet.openkg.cn/skillgym) for skill graph construction and lifecycle benchmarking, and [SkillNet-Fabric](http://skillnet.openkg.cn/skillfabric) for Wiki-based skill routing, including research results and a guided routing demo.
 
+### Local skill library frontend
+
+A [local frontend](frontend/README.md) is available in `frontend/` for browsing repository skills, bundled analysis examples, and personal skill folders. It is separate from the public web platform.
+
+Install Node.js 18, 20, or 22+ and Python 3.10+, then run:
+
+```bash
+cd frontend
+npm ci
+npm run dev
+```
+
+Open the local URL printed by Vite. The personal library starts empty; you can create a local skills folder or connect an existing one. Repository examples are available separately and require no API key.
+
 <div align="center">
 
 https://github.com/user-attachments/assets/9f9d35b0-36fd-4d7d-a072-39afa380b241
