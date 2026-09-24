@@ -32,6 +32,9 @@ OpenAI-compatible Chat Completions endpoint. Analyze also needs an embedding
 endpoint; route uses that same embedding endpoint and a separately configured
 Claude or Codex Agent SDK.
 
+The optional [browser interface](#browser-interface) opens local skills and saved
+analysis results with `skillnet ui`.
+
 For the full project overview, research context, integrations, and roadmap, see the [main SkillNet repository](https://github.com/zjunlp/SkillNet).
 
 ---
@@ -90,6 +93,7 @@ skillnet download <skill_url> -d ./my_skills
 | Evaluate skills | `client.evaluate(...)` | `skillnet evaluate ...` | Chat Completions API |
 | Analyze relationships | `client.analyze(...)` | `skillnet analyze ...` | Chat Completions + embeddings |
 | Route local skills | `client.route(...)` | `skillnet route ...` | Embeddings + Claude or Codex Agent SDK |
+| Browse local skills | — | `skillnet ui` | None |
 
 ---
 
@@ -363,6 +367,40 @@ to update the index; editing generated Wiki pages does not update routing.
 Invalid model responses, damaged indexes, and SDK timeouts raise errors. A failed
 Explorer call does not return a substitute selection based on retrieval rank.
 
+## Browser interface
+
+The optional browser interface is included in the upcoming **0.1.2** release.
+Until it is published on PyPI, use the
+[source setup](https://github.com/zjunlp/SkillNet/blob/main/skillnet-ai/src/skillnet_ai/web/ui/README.md#develop-and-build).
+After release:
+
+```bash
+pip install "skillnet-ai[ui]>=0.1.2"
+skillnet ui --skills-dir "/absolute/path/to/skills"
+```
+
+The service opens `http://127.0.0.1:8765`. Omit `--skills-dir` to choose a folder
+in the interface; use `--no-browser` to suppress opening a tab, or `--port` to
+change the port. Stop it with Ctrl+C.
+
+- Browse local `SKILL.md` files and search the skill list.
+- Switch **View** to **Analysis results** to inspect saved `compose_with` and
+  `similar_to` relationships in a graph or list, and follow evidence to source lines.
+- Import a complete SDK `graph.json`, or read the analysis in a folder's `.skillnet/`
+  directory. Generate analysis separately with `client.analyze(...)` or
+  `skillnet analyze`; the interface makes no model calls.
+
+Install `[ui,graph]` if you also want to generate analysis locally. Browsing
+requires no model key, database, or Node.js. The six SDK methods keep their existing
+APIs; `skillnet ui` is the browser launch command.
+
+The implementation lives in `src/skillnet_ai/web/`: Python serves local data and
+compiled assets, while `web/ui/` contains the React source. See the
+[interface guide](https://github.com/zjunlp/SkillNet/blob/main/skillnet-ai/src/skillnet_ai/web/ui/README.md)
+for storage, limits, and development details.
+
+---
+
 ## CLI
 
 The CLI is installed with the package. You can also invoke it as
@@ -383,6 +421,7 @@ skillnet <command> --help
 | `evaluate` | Evaluate a local or remote skill | `skillnet evaluate ./my_skill` |
 | `analyze` | Build a local scenario graph and index | `skillnet analyze ./my_skills --output-dir ./skillnet_index` |
 | `route` | Select local skills for a task | `skillnet route "analyze my CSV" --index-dir ./skillnet_index` |
+| `ui` | Browse local skills and saved analysis | `skillnet ui --skills-dir /absolute/path/to/skills` |
 
 ### Search
 
@@ -587,9 +626,12 @@ versions in `src/skillnet_ai/core/prompts.py` to invalidate obsolete cached resu
 From the `skillnet-ai/` directory:
 
 ```bash
-pip install -e ".[graph,dev,claude,codex]"
+pip install -e ".[ui,graph,dev,claude,codex]"
 pytest -q
 mypy
+# Build the website before producing a wheel or source distribution (Node.js 20 or 22+).
+npm --prefix src/skillnet_ai/web/ui ci
+npm --prefix src/skillnet_ai/web/ui run build
 python -m build
 ```
 
@@ -602,16 +644,3 @@ real skills and your configured providers.
 
 SkillNet is licensed under [MIT](https://github.com/zjunlp/SkillNet/blob/main/LICENSE).
 Skills from external repositories retain their own licenses.
-
-## Browser interface
-
-Install `pip install "skillnet-ai[ui]"` and run `skillnet ui` to browse local skill
-folders and saved analysis results. Use `--skills-dir /absolute/path/to/skills`
-to open a folder immediately, or `--no-browser` to start without opening a tab.
-The service listens only on loopback and makes no model calls.
-
-The implementation lives in `src/skillnet_ai/web/`: Python serves local data and
-compiled assets, while `web/ui/` contains the React source. See the
-[interface guide](src/skillnet_ai/web/ui/README.md) for source development, data
-limits and building the website before packaging. Wheel and source releases
-include compiled assets; end users do not need Node.js.

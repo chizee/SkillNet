@@ -6,8 +6,11 @@ evaluates a skill, or executes skill scripts.
 
 ## Use an installed release
 
+The interface is part of the upcoming **skillnet-ai 0.1.2** release. Until it is
+published on PyPI, follow [Develop and build](#develop-and-build). After release:
+
 ```bash
-pip install "skillnet-ai[ui]"
+pip install "skillnet-ai[ui]>=0.1.2"
 skillnet ui
 skillnet ui --skills-dir "/absolute/path/to/skills"
 ```
@@ -48,6 +51,7 @@ are reported; evidence always points to the source saved at analysis time.
   localStorage. Storage is specific to the browser and host/port.
 - Limits: 20 MB per import or source library, 5,000 skills, 20,000 relationships.
   The skill list shows the first 200 matches; search narrows the list.
+
 ## Develop and build
 
 From `skillnet-ai/`, install the Python source and optional web dependencies:
@@ -81,6 +85,8 @@ Use `npm run format:check` to check TypeScript/CSS formatting.
 Build the UI before building the Python package. From `skillnet-ai/`:
 
 ```bash
+npm --prefix src/skillnet_ai/web/ui ci
+npm --prefix src/skillnet_ai/web/ui run build
 python -m build
 ```
 
