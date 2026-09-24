@@ -41,9 +41,9 @@ SkillNet provides unified infrastructure for the agent skill lifecycle:
 
 ## News
 
-- **[Unreleased · 0.1.2]** A [**local browser interface**](#local-browser-interface)
-  brings your skill folders, analyzed relationships, and source evidence into one
-  view. Launch it with `skillnet ui`; browsing requires no model calls.
+- **[2026-09-24]** [**skillnet-ai 0.1.2**](https://pypi.org/project/skillnet-ai/0.1.2/)
+  adds a [local browser interface](#local-browser-interface) for exploring skill
+  folders, analyzed relationships, and source evidence. Launch it with `skillnet ui`.
 
 - **[2026-08-20]** The updated [**SkillNet report**](https://arxiv.org/abs/2603.04448) presents
   **SkillNet-Gym**, with executable benchmarks for skill construction, retrieval, and composition,
@@ -92,9 +92,7 @@ The [browser interface](skillnet-ai/src/skillnet_ai/web/ui/README.md) is part of
 Python package. Browse your own skill folders, inspect saved analysis graphs,
 and follow relationship evidence to the original source lines.
 
-The interface is included in the upcoming **0.1.2** release. Until it is published
-on PyPI, use the [source setup](skillnet-ai/src/skillnet_ai/web/ui/README.md#develop-and-build).
-After release, install and launch it with:
+Available in **skillnet-ai 0.1.2+**. Install and launch it with:
 
 ```bash
 pip install "skillnet-ai[ui]>=0.1.2"

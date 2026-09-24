@@ -6,8 +6,8 @@ evaluates a skill, or executes skill scripts.
 
 ## Use an installed release
 
-The interface is part of the upcoming **skillnet-ai 0.1.2** release. Until it is
-published on PyPI, follow [Develop and build](#develop-and-build). After release:
+Requires **skillnet-ai 0.1.2+**. For a source checkout, follow
+[Develop and build](#develop-and-build).
 
 ```bash
 pip install "skillnet-ai[ui]>=0.1.2"

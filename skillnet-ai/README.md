@@ -367,12 +367,12 @@ to update the index; editing generated Wiki pages does not update routing.
 Invalid model responses, damaged indexes, and SDK timeouts raise errors. A failed
 Explorer call does not return a substitute selection based on retrieval rank.
 
-## Browser interface
+---
 
-The optional browser interface is included in the upcoming **0.1.2** release.
-Until it is published on PyPI, use the
-[source setup](https://github.com/zjunlp/SkillNet/blob/main/skillnet-ai/src/skillnet_ai/web/ui/README.md#develop-and-build).
-After release:
+## Browser Interface
+
+Browse local skills and saved analysis results with the optional browser interface,
+available in **0.1.2+**:
 
 ```bash
 pip install "skillnet-ai[ui]>=0.1.2"
@@ -390,9 +390,8 @@ change the port. Stop it with Ctrl+C.
   directory. Generate analysis separately with `client.analyze(...)` or
   `skillnet analyze`; the interface makes no model calls.
 
-Install `[ui,graph]` if you also want to generate analysis locally. Browsing
-requires no model key, database, or Node.js. The six SDK methods keep their existing
-APIs; `skillnet ui` is the browser launch command.
+Install `skillnet-ai[ui,graph]` if you also want to generate analysis locally.
+Browsing requires no model key, database, or Node.js.
 
 The implementation lives in `src/skillnet_ai/web/`: Python serves local data and
 compiled assets, while `web/ui/` contains the React source. See the
