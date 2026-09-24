@@ -587,8 +587,6 @@ export default function App() {
       <header className="site-header">
         <div className="site-header-inner">
           <a href="https://skillnet.openkg.cn/" className="brand" aria-label="SkillNet website"><img src="/skillnet.png" alt="SkillNet" /></a>
-          <div className="header-divider" />
-          <span className="product-name">Skill Library</span>
           <div className="header-spacer" />
           <a className="header-link" href="https://github.com/zjunlp/SkillNet" target="_blank" rel="noreferrer">GitHub <ArrowRight size={14} /></a>
         </div>
