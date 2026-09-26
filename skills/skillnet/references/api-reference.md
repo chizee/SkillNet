@@ -47,6 +47,19 @@ Business results use one JSON document on stdout:
 | analyze | `index_dir`, `skill_count`, `relation_counts`, `cache_hits`; the full graph is in the analysis directory |
 | route | `skills` with IDs, names, original paths and reasons; available `usage` |
 
+Search records include nullable `repo_name` (`owner/repository`) and `skill_dir`
+(the source directory including that repository prefix). SDK/CLI 0.1.3+ versions
+preserve these fields; older SDK versions ignore them, and older servers may omit
+them. The CLI displays the repository and directory below the skill name.
+
+`skill_name` is not unique: repositories and version directories may share names.
+Do not merge results by name or name plus repository. Use `skill_url` to distinguish
+returned source links and select a download; use `skill_dir`, when available, to
+group a source directory across updates. It is not a content-version identifier.
+`stars` belongs to the source repository at collection time. Short keywords work
+with `--mode keyword`; use `--mode vector` for natural-language tasks and similarity
+ordering.
+
 A failed operation has `ok: false`, `error: {code, message, hint}` and exits 1.
 Partial creation data remains available. Empty search results are successful.
 CLI usage errors (invalid flags or argument types) use exit 2 and stderr; stdout

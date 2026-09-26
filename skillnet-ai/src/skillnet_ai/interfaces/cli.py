@@ -15,6 +15,7 @@ from rich.columns import Columns
 from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
+from rich.text import Text
 
 from skillnet_ai.core.config import config_path, redact, resolve_settings, save_config
 from skillnet_ai.core.llm import error_details
@@ -133,9 +134,26 @@ def search(
         console.print("No results found.")
     else:
         table = Table(title="Search Results", show_lines=True)
-        for name in ("Name", "Category", "Stars", "Description", "Evaluation", "URL"):
+        for name in (
+            "Skill / Source",
+            "Category",
+            "Repo Stars",
+            "Description",
+            "Evaluation",
+            "URL",
+        ):
             table.add_column(name)
         for item in results:
+            identity = Text(item.skill_name, style="bold", overflow="fold")
+            if item.repo_name:
+                identity.append(f"\n{item.repo_name}", style="default")
+            if item.skill_dir:
+                directory = item.skill_dir
+                if item.repo_name:
+                    directory = directory.removeprefix(item.repo_name + "/")
+                    if item.skill_dir.rstrip("/") == item.repo_name:
+                        directory = "."
+                identity.append(f"\n{directory}", style="default")
             ratings = (
                 "\n".join(
                     f"{d}: {item.evaluation.get(d, {}).get('level', 'N/A')}" for d in DIMENSIONS
@@ -144,7 +162,7 @@ def search(
                 else "N/A"
             )
             table.add_row(
-                item.skill_name,
+                identity,
                 item.category or "",
                 str(item.stars),
                 item.skill_description or "",

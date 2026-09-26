@@ -9,7 +9,7 @@ from pydantic import BaseModel, ConfigDict, Field, SecretStr, model_validator
 
 
 class SkillModel(BaseModel):
-    """Represents a Skill object returned from the search API."""
+    """A source record; names are not unique and stars belong to the repository."""
 
     skill_name: str
     skill_description: str | None = None
@@ -18,6 +18,13 @@ class SkillModel(BaseModel):
     skill_url: str | None = None
     category: str | None = None
     evaluation: dict[str, Any] | None = None
+    repo_name: str | None = Field(
+        default=None, description="Source repository in owner/repository form, when known."
+    )
+    skill_dir: str | None = Field(
+        default=None,
+        description="Source directory including the owner/repository prefix, when known.",
+    )
 
 
 class MetaModel(BaseModel):

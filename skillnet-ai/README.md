@@ -116,8 +116,10 @@ endpoints are configured separately.
 ### Search
 
 Query the hosted SkillNet catalog and return a list of skill records. Keyword
-search defaults to sorting by stars. Vector search uses the hosted service's
-embeddings; `EMBEDDING_*` settings apply to local analysis and routing.
+search works with short names/keywords and defaults to sorting by repository stars.
+For natural-language tasks, use vector search, which returns results in similarity
+order using the hosted service's embeddings. `EMBEDDING_*` settings apply to local
+analysis and routing.
 
 ```python
 results = client.search(
@@ -130,6 +132,27 @@ results = client.search(
 for skill in results:
     print(skill.skill_name, skill.stars, skill.skill_url)
 ```
+
+**Names and sources.** `skill_name` is not unique: different repositories or version
+directories can contain skills with the same name. `stars` is the source repository's
+star count at collection time, not a rating of the individual skill.
+
+With skillnet-ai 0.1.3+, search records also expose nullable source fields:
+
+| Field | Meaning | Example |
+| :-- | :-- | :-- |
+| `repo_name` | Source repository | `owner/repository` |
+| `skill_dir` | Source directory, including the repository prefix | `owner/repository/releases/v2/skills/example` |
+
+The CLI shows the repository and directory below each skill name; `--json` preserves
+the full fields. Missing metadata is `null` (`None` in Python), including responses
+from older servers. Older SDK releases ignore these fields; upgrade with
+`pip install -U skillnet-ai` to read them in Python or CLI output.
+
+Use `skill_url` to distinguish returned source links and download the selected entry.
+For grouping a collected source directory, use `skill_dir` when available. A directory
+can receive content updates, and its commit-specific `skill_url` can change; neither
+the name nor name plus repository uniquely identifies all source directories.
 
 <details>
 <summary><b>Search parameters</b></summary>
