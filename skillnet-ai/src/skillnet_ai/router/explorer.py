@@ -160,9 +160,10 @@ def validate_wiki_command(item: dict[str, Any], root: Path) -> None:
         value = action.get("path")
         if sys.platform == "win32" and action["type"] == "unknown":
             command = action.get("command", "").removeprefix(POWERSHELL_UTF8_PREFIX).strip()
+            # PowerShell also treats U+2018-U+201B as single-quote delimiters.
             match = re.fullmatch(
-                r"Get-Content -LiteralPath '((?!~)[^'\r\n:]+)' -Encoding UTF8"
-                r"|Get-ChildItem -LiteralPath '((?!~)[^'\r\n:]+)' -Name",
+                r"Get-Content -LiteralPath '((?!~)[^'\u2018-\u201b\r\n:]+)' -Encoding UTF8"
+                r"|Get-ChildItem -LiteralPath '((?!~)[^'\u2018-\u201b\r\n:]+)' -Name",
                 command,
                 flags=re.IGNORECASE,
             )

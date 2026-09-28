@@ -352,11 +352,13 @@ def test_codex_session(
     assert closed.is_set()
 
 
+@pytest.mark.parametrize("prefix", ["", explorer_module.POWERSHELL_UTF8_PREFIX])
 @pytest.mark.parametrize("platform", ["win32", "linux", "darwin"])
 @pytest.mark.parametrize(
     ("command", "allowed"),
     [
         ("Get-Content -LiteralPath 'sources/stats notes.md' -Encoding UTF8", True),
+        ("Get-Content -LiteralPath 'sources/中文 notes.md' -Encoding UTF8", True),
         ("Get-ChildItem -LiteralPath '.' -Name", True),
         ("Get-Content -LiteralPath '../outside.md' -Encoding UTF8", False),
         ("Get-Content -LiteralPath 'Env:OPENAI_API_KEY' -Encoding UTF8", False),
@@ -366,9 +368,38 @@ def test_codex_session(
     ],
 )
 def test_powershell_wiki_commands(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str, command: str, allowed: bool
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    prefix: str,
+    platform: str,
+    command: str,
+    allowed: bool,
 ) -> None:
     monkeypatch.setattr(explorer_module, "sys", SimpleNamespace(platform=platform))
-    item = {"cwd": str(tmp_path), "commandActions": [{"type": "unknown", "command": command}]}
+    item = {
+        "cwd": str(tmp_path),
+        "commandActions": [{"type": "unknown", "command": prefix + command}],
+    }
     with nullcontext() if allowed and platform == "win32" else pytest.raises(ValueError):
+        explorer_module.validate_wiki_command(item, tmp_path)
+
+
+@pytest.mark.parametrize("quote", ["\u2018", "\u2019", "\u201a", "\u201b"])
+@pytest.mark.parametrize("prefix", ["", explorer_module.POWERSHELL_UTF8_PREFIX])
+@pytest.mark.parametrize(
+    ("cmdlet", "argument"), [("Get-Content", "-Encoding UTF8"), ("Get-ChildItem", "-Name")]
+)
+def test_powershell_rejects_typographic_quote_breakout(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    quote: str,
+    prefix: str,
+    cmdlet: str,
+    argument: str,
+) -> None:
+    """PowerShell treats typographic single quotes as string delimiters too."""
+    monkeypatch.setattr(explorer_module, "sys", SimpleNamespace(platform="win32"))
+    command = f"{prefix}{cmdlet} -LiteralPath 'index.md{quote}; Write-Output marker; #x' {argument}"
+    item = {"cwd": str(tmp_path), "commandActions": [{"type": "unknown", "command": command}]}
+    with pytest.raises(ValueError, match="literal PowerShell"):
         explorer_module.validate_wiki_command(item, tmp_path)
