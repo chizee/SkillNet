@@ -5,6 +5,7 @@ import json
 import sys
 import threading
 from collections.abc import AsyncIterator, Iterator
+from contextlib import nullcontext
 from pathlib import Path
 from types import ModuleType, SimpleNamespace
 
@@ -23,6 +24,7 @@ from skillnet_ai.core.models import (
     SkillSelection,
 )
 from skillnet_ai.interfaces.cli import app
+from skillnet_ai.router import explorer as explorer_module
 from skillnet_ai.router.explorer import ClaudeExplorer, CodexExplorer
 
 ENDPOINT = Endpoint(api_key=SecretStr("test-key"), base_url="https://model.test/v1", model="test")
@@ -245,7 +247,7 @@ def test_claude_session(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, timeout
     assert closed.is_set()
 
 
-@pytest.mark.parametrize("failure", [None, "provider", "timeout", "outside", "tool"])
+@pytest.mark.parametrize("failure", [None, "provider", "timeout", "outside", "tool", "windows"])
 def test_codex_session(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, failure: str | None
 ) -> None:
@@ -257,6 +259,8 @@ def test_codex_session(
         SimpleNamespace(read_only="read-only"),
     )
     closed = threading.Event()
+    if failure == "windows":
+        monkeypatch.setattr(explorer_module, "sys", SimpleNamespace(platform="win32"))
 
     def event(method: str, payload: dict[str, object]) -> SimpleNamespace:
         return SimpleNamespace(method=method, payload=RootModel[dict](payload))
@@ -274,11 +278,16 @@ def test_codex_session(
                 "exitCode": None,
                 "commandActions": [
                     {
-                        "type": "unknown" if failure == "tool" else "search",
+                        "type": "unknown" if failure in {"tool", "windows"} else "search",
                         "path": "../outside" if failure == "outside" else "sources/stats.md",
+                        "command": "python -V",
                     }
                 ],
             }
+            if failure == "windows":
+                item["commandActions"][0]["command"] = explorer_module.POWERSHELL_UTF8_PREFIX + (
+                    "Get-Content -LiteralPath 'sources/stats.md' -Encoding UTF8"
+                )
             yield event("item/started", {"item": item})
             yield event("item/completed", {"item": {**item, "exitCode": 0}})
             yield event(
@@ -296,6 +305,10 @@ def test_codex_session(
     class Codex:
         def __init__(self, *, config: SimpleNamespace) -> None:
             assert config.env["OPENAI_API_KEY"] == "test-key"
+            assert {
+                "features.plugins=false",
+                "features.remote_plugin=false",
+            } <= set(config.config_overrides)
 
         def __enter__(self) -> "Codex":
             return self
@@ -324,7 +337,7 @@ def test_codex_session(
     monkeypatch.setitem(sys.modules, "openai_codex", sdk)
     monkeypatch.setitem(sys.modules, "openai_codex.types", types)
     options = RouteOptions(timeout=0.05 if failure == "timeout" else 300)
-    if failure:
+    if failure and failure != "windows":
         error = {
             "provider": RuntimeError,
             "timeout": TimeoutError,
@@ -337,3 +350,25 @@ def test_codex_session(
         result = CodexExplorer().explore(tmp_path, "task", 1, ENDPOINT, options)
         assert result.selection == selection()
     assert closed.is_set()
+
+
+@pytest.mark.parametrize("platform", ["win32", "linux", "darwin"])
+@pytest.mark.parametrize(
+    ("command", "allowed"),
+    [
+        ("Get-Content -LiteralPath 'sources/stats notes.md' -Encoding UTF8", True),
+        ("Get-ChildItem -LiteralPath '.' -Name", True),
+        ("Get-Content -LiteralPath '../outside.md' -Encoding UTF8", False),
+        ("Get-Content -LiteralPath 'Env:OPENAI_API_KEY' -Encoding UTF8", False),
+        ("Get-Content -LiteralPath '~/outside.md' -Encoding UTF8", False),
+        ("Get-ChildItem -LiteralPath '.' -Name; Remove-Item 'index.md'", False),
+        ("Get-Content -LiteralPath 'index.md' -Encoding UTF8 | Invoke-Expression", False),
+    ],
+)
+def test_powershell_wiki_commands(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, platform: str, command: str, allowed: bool
+) -> None:
+    monkeypatch.setattr(explorer_module, "sys", SimpleNamespace(platform=platform))
+    item = {"cwd": str(tmp_path), "commandActions": [{"type": "unknown", "command": command}]}
+    with nullcontext() if allowed and platform == "win32" else pytest.raises(ValueError):
+        explorer_module.validate_wiki_command(item, tmp_path)

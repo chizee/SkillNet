@@ -592,7 +592,7 @@ class SkillLoader:
 
         def record_walk_error(error: OSError) -> None:
             failed_path = error.filename or skill_dir
-            rel_path = os.path.relpath(failed_path, skill_dir)
+            rel_path = os.path.relpath(failed_path, skill_dir).replace(os.sep, "/")
             SkillLoader._record_scan_issue(
                 scan_issues,
                 rel_path,
@@ -602,7 +602,7 @@ class SkillLoader:
         for root, dirs, files in os.walk(skill_dir, onerror=record_walk_error):
             entries_seen += len(dirs) + len(files)
             if entries_seen > SkillLoader.MAX_WALK_ENTRIES:
-                rel_root = os.path.relpath(root, skill_dir)
+                rel_root = os.path.relpath(root, skill_dir).replace(os.sep, "/")
                 SkillLoader._record_scan_issue(
                     scan_issues,
                     rel_root,
@@ -643,7 +643,7 @@ class SkillLoader:
                 if not file_filter(filename):
                     continue
                 filepath = os.path.join(root, filename)
-                rel_path = os.path.relpath(filepath, skill_dir)
+                rel_path = os.path.relpath(filepath, skill_dir).replace(os.sep, "/")
                 if len(items) >= max_files:
                     SkillLoader._record_scan_issue(
                         scan_issues,
@@ -689,7 +689,7 @@ class SkillLoader:
             )
             return None
 
-        rel_path = os.path.relpath(path, skill_dir)
+        rel_path = os.path.relpath(path, skill_dir).replace(os.sep, "/")
         try:
             with open(path, "r", encoding="utf-8") as f:
                 content = f.read(max_chars + 1)

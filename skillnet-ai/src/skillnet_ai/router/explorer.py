@@ -5,6 +5,8 @@ SDK setup adapted from SkillFabric; Copyright (c) 2026 SkillFabric Contributors,
 
 import asyncio
 import logging
+import re
+import sys
 import threading
 from collections import Counter
 from collections.abc import AsyncGenerator, AsyncIterator
@@ -25,6 +27,12 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 PATH_KEYS = {"Read": "file_path", "Glob": "path", "Grep": "path", "LS": "path"}
+POWERSHELL_UTF8_PREFIX = "try { [Console]::OutputEncoding=[System.Text.Encoding]::UTF8 } catch {}\n"
+WINDOWS_EXPLORER_TOOLS = (
+    "\nUse noninteractive exec_command only: Get-ChildItem -LiteralPath '<path>' -Name "
+    "or Get-Content -LiteralPath '<path>' -Encoding UTF8. Use single-quoted relative Wiki "
+    "paths. No other arguments, scripts, interactive sessions, network or skill execution."
+)
 
 
 class ClaudeExplorer:
@@ -149,9 +157,20 @@ def validate_wiki_command(item: dict[str, Any], root: Path) -> None:
     if not actions:
         raise ValueError("Codex command has no recognized read/search action.")
     for action in actions:
-        if action["type"] not in {"read", "listFiles", "search"}:
-            raise ValueError("Codex Explorer supports only file reads and searches.")
         value = action.get("path")
+        if sys.platform == "win32" and action["type"] == "unknown":
+            command = action.get("command", "").removeprefix(POWERSHELL_UTF8_PREFIX).strip()
+            match = re.fullmatch(
+                r"Get-Content -LiteralPath '((?!~)[^'\r\n:]+)' -Encoding UTF8"
+                r"|Get-ChildItem -LiteralPath '((?!~)[^'\r\n:]+)' -Name",
+                command,
+                flags=re.IGNORECASE,
+            )
+            if match is None:
+                raise ValueError("Codex Explorer supports only literal PowerShell reads/listings.")
+            value = match[1] or match[2]
+        elif action["type"] not in {"read", "listFiles", "search"}:
+            raise ValueError("Codex Explorer supports only file reads and searches.")
         if value is None:
             continue
         path = (cwd / value).resolve()
@@ -183,7 +202,11 @@ class CodexExplorer:
                     "CODEX_API_KEY": "",
                     "CODEX_ACCESS_TOKEN": "",
                 },
-                config_overrides=("check_for_update_on_startup=false",),
+                config_overrides=(
+                    "check_for_update_on_startup=false",
+                    "features.plugins=false",
+                    "features.remote_plugin=false",
+                ),
             )
             client = sdk.Codex(config=config)
             expired = threading.Event()
@@ -209,7 +232,8 @@ class CodexExplorer:
                     ephemeral=True,
                     approval_mode=sdk.ApprovalMode.deny_all,
                     sandbox=sdk.Sandbox.read_only,
-                    developer_instructions=explorer_prompt(k, read_limit) + CODEX_EXPLORER_TOOLS,
+                    developer_instructions=explorer_prompt(k, read_limit)
+                    + (WINDOWS_EXPLORER_TOOLS if sys.platform == "win32" else CODEX_EXPLORER_TOOLS),
                     config={
                         "openai_base_url": endpoint.base_url,
                         "web_search": "disabled",
