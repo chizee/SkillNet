@@ -415,7 +415,7 @@ def test_evaluator_reports_reference_file_limit_as_incomplete(tmp_path, monkeypa
 
 
 def test_loader_reports_directory_walk_failure(tmp_path, monkeypatch):
-    failed_path = tmp_path / "references"
+    failed_path = tmp_path / "references" / "nested"
 
     def fail_walk(_path, onerror=None):
         if onerror is not None:
@@ -432,7 +432,7 @@ def test_loader_reports_directory_walk_failure(tmp_path, monkeypatch):
     )
 
     assert references == []
-    assert issues[0].file == "references"
+    assert issues[0].file == "references/nested"
     assert "directory" in issues[0].reason.lower()
 
 
@@ -472,7 +472,7 @@ def test_loader_does_not_find_skill_md_in_ignored_directory(tmp_path):
 def test_loader_bounds_directory_entries(tmp_path, monkeypatch):
     def large_walk(_path, onerror=None):
         del onerror
-        yield str(tmp_path), [f"dir-{index}" for index in range(10_001)], []
+        yield str(tmp_path / "nested" / "references"), [f"dir-{index}" for index in range(10_001)], []
 
     monkeypatch.setattr(evaluator_module.os, "walk", large_walk)
     issues = []
@@ -482,6 +482,7 @@ def test_loader_bounds_directory_entries(tmp_path, monkeypatch):
     )
 
     assert references == []
+    assert issues[0].file == "nested/references"
     assert "entry limit" in issues[0].reason.lower()
 
 
